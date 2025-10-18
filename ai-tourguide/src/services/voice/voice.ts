@@ -1,8 +1,10 @@
 "use server";
 
+import { VOICE_CONFIG } from "./data";
+
 const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY;
 // This is a default voice ID. You can replace it with your own.
-const DEFAULT_VOICE_ID = "7qdeg0yn0d1SFxiXCaQz"; 
+const DEFAULT_VOICE_ID = VOICE_CONFIG["Cheryl Tan"];
 
 if (!ELEVENLABS_API_KEY) {
   console.warn(
@@ -42,7 +44,7 @@ export async function narrateWithElevenLabs({
         },
         body: JSON.stringify({
           text,
-          model_id: "eleven_multilingual_v2", // Or another model of your choice
+          model_id: "eleven_multilingual_v2",
           voice_settings: {
             stability: 0.5,
             similarity_boost: 0.75,
@@ -53,14 +55,17 @@ export async function narrateWithElevenLabs({
 
     if (!response.ok) {
       const errorBody = await response.text();
-      throw new Error(`ElevenLabs API error: ${response.statusText} - ${errorBody}`);
+      throw new Error(
+        `ElevenLabs API error: ${response.statusText} - ${errorBody}`
+      );
     }
 
     const audioArrayBuffer = await response.arrayBuffer();
     return Buffer.from(audioArrayBuffer);
-
   } catch (error) {
     console.error("Failed to generate audio with ElevenLabs:", error);
-    throw new Error("Failed to generate audio. Please check the server logs for more details.");
+    throw new Error(
+      "Failed to generate audio. Please check the server logs for more details."
+    );
   }
 }
