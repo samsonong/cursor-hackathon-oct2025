@@ -33,6 +33,7 @@ type NarrationEntry = {
 
 const poiCatalog: PlaceOfInterest[] = [changiJewelMain, changiJewelRainVortex];
 const WAKE_WORD_RESET_MS = 4_000;
+const BROWSER_SESSION_STORAGE_KEY = "ai-tourguide:browser-session-id";
 
 type SpeechRecognitionConstructor = new () => SpeechRecognitionInstance;
 
@@ -144,9 +145,7 @@ export default function StorytellerPage() {
   const [wakeWordPhrase, setWakeWordPhrase] = useState<string>("");
   const [isMicListening, setIsMicListening] = useState<boolean>(false);
   const [micError, setMicError] = useState<string | null>(null);
-  const [conversationSessionId, setConversationSessionId] = useState<
-    string | null
-  >(null);
+  const browserSessionIdRef = useRef<string | null>(null);
   const knowledge = changiJewelKnowledgeBase;
   const overviewBullets = knowledge.overview.bullets?.slice(0, 3) ?? [];
   const quickFactCards = knowledge.quickFacts.slice(0, 6);
@@ -187,8 +186,52 @@ export default function StorytellerPage() {
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const wakeWordPausedRef = useRef<boolean>(false);
   const isHandlingWakeWordRef = useRef<boolean>(false);
-  const conversationSessionIdRef = useRef<string | null>(null);
   const activeWakeWord = useMemo(() => getWakeWord(), []);
+
+  const ensureBrowserSessionId = useCallback((): string => {
+    if (browserSessionIdRef.current) {
+      return browserSessionIdRef.current;
+    }
+
+    const makeId = () => {
+      if (
+        typeof crypto !== "undefined" &&
+        typeof crypto.randomUUID === "function"
+      ) {
+        return crypto.randomUUID();
+      }
+      return `session-${Date.now().toString(36)}-${Math.random()
+        .toString(36)
+        .slice(2, 10)}`;
+    };
+
+    const fallbackId = makeId();
+
+    if (typeof window === "undefined") {
+      browserSessionIdRef.current = fallbackId;
+      return fallbackId;
+    }
+
+    try {
+      const stored = window.sessionStorage.getItem(BROWSER_SESSION_STORAGE_KEY);
+
+      if (stored) {
+        browserSessionIdRef.current = stored;
+        return stored;
+      }
+
+      window.sessionStorage.setItem(BROWSER_SESSION_STORAGE_KEY, fallbackId);
+      browserSessionIdRef.current = fallbackId;
+      return fallbackId;
+    } catch (storageError) {
+      console.warn(
+        "Unable to access sessionStorage for session id",
+        storageError
+      );
+      browserSessionIdRef.current = fallbackId;
+      return fallbackId;
+    }
+  }, []);
 
   const listenToUser = useCallback(
     async (initialTranscript: string): Promise<string | null> => {
@@ -357,7 +400,7 @@ export default function StorytellerPage() {
           wakeWordUsed: boolean
         ) => {
           const agentResponse = await answerUserQuestion({
-            sessionId: conversationSessionIdRef.current,
+            sessionId: ensureBrowserSessionId(),
             text: rawText,
             strippedText,
             wakeWordDetected: wakeWordUsed,
@@ -366,12 +409,6 @@ export default function StorytellerPage() {
           });
 
           setMicError(null);
-
-          if (agentResponse.ended) {
-            setConversationSessionId(null);
-          } else {
-            setConversationSessionId(agentResponse.sessionId);
-          }
 
           if (agentResponse.reply) {
             await narrateToUser(agentResponse.reply);
@@ -446,7 +483,7 @@ export default function StorytellerPage() {
         }
       }
     },
-    [activeWakeWord, listenToUser, selectedPoi]
+    [activeWakeWord, ensureBrowserSessionId, listenToUser, selectedPoi]
   );
 
   useEffect(() => {
@@ -578,8 +615,8 @@ export default function StorytellerPage() {
   }, [activeWakeWord, handleWakeWordMatch]);
 
   useEffect(() => {
-    conversationSessionIdRef.current = conversationSessionId;
-  }, [conversationSessionId]);
+    ensureBrowserSessionId();
+  }, [ensureBrowserSessionId]);
 
   useEffect(() => {
     if (!wakeWordDetectedAt) {
@@ -1089,8 +1126,8 @@ export default function StorytellerPage() {
             Storytelling is instant—feel free to improvise on the fly.
           </span>
           <div className="flex items-center gap-4">
-            <a 
-              href="/admin" 
+            <a
+              href="/admin"
               className="text-emerald-400 hover:text-emerald-300 transition-colors"
               title="View saved image analyses"
             >

@@ -30,6 +30,7 @@ const WAKE_WORD_SILENCE_MS = 2_000;
 const WAVEFORM_SAMPLES = 48;
 const FALLBACK_RECOGNITION_LANGS = ["en-SG", "en-US", "en-GB", "en-AU", "en"];
 const NARRATION_POLL_INTERVAL_MS = 2_000;
+const BROWSER_SESSION_STORAGE_KEY = "ai-tourguide:browser-session-id";
 
 const poiCatalog: PlaceOfInterest[] = [changiJewelMain, changiJewelRainVortex];
 
@@ -133,9 +134,6 @@ export default function DemoSplashPage() {
   const [isNarrating, setIsNarrating] = useState<boolean>(false);
   const [currentPoi, setCurrentPoi] = useState<PlaceOfInterest>(poiCatalog[0]);
   const [activeVoiceId, setActiveVoiceId] = useState<string>(defaultVoiceId);
-  const [conversationSessionId, setConversationSessionId] = useState<
-    string | null
-  >(null);
   const [statusState, setStatusState] = useState<StatusState>("waiting");
 
   // Image upload state
@@ -151,7 +149,7 @@ export default function DemoSplashPage() {
   const animationFrameRef = useRef<number | null>(null);
   const wakeWordPausedRef = useRef<boolean>(false);
   const isHandlingWakeWordRef = useRef<boolean>(false);
-  const conversationSessionIdRef = useRef<string | null>(null);
+  const browserSessionIdRef = useRef<string | null>(null);
   const currentPoiRef = useRef<PlaceOfInterest>(poiCatalog[0]);
   const activeVoiceIdRef = useRef<string>(defaultVoiceId);
   const pollTimeoutRef = useRef<number | null>(null);
@@ -166,9 +164,52 @@ export default function DemoSplashPage() {
     activeVoiceIdRef.current = activeVoiceId || defaultVoiceId;
   }, [activeVoiceId, defaultVoiceId]);
 
+  const ensureBrowserSessionId = useCallback((): string => {
+    if (browserSessionIdRef.current) {
+      return browserSessionIdRef.current;
+    }
+
+    const makeId = () => {
+      if (
+        typeof crypto !== "undefined" &&
+        typeof crypto.randomUUID === "function"
+      ) {
+        return crypto.randomUUID();
+      }
+      return `session-${Date.now().toString(36)}-${Math.random()
+        .toString(36)
+        .slice(2, 10)}`;
+    };
+
+    const fallbackId = makeId();
+
+    if (typeof window === "undefined") {
+      browserSessionIdRef.current = fallbackId;
+      return fallbackId;
+    }
+
+    try {
+      const stored = window.sessionStorage.getItem(BROWSER_SESSION_STORAGE_KEY);
+      if (stored) {
+        browserSessionIdRef.current = stored;
+        return stored;
+      }
+      window.sessionStorage.setItem(BROWSER_SESSION_STORAGE_KEY, fallbackId);
+      browserSessionIdRef.current = fallbackId;
+      return fallbackId;
+    } catch (storageError) {
+      console.warn(
+        "Unable to access sessionStorage for session id",
+        storageError
+      );
+      browserSessionIdRef.current = fallbackId;
+      return fallbackId;
+    }
+  }, []);
+
   useEffect(() => {
-    conversationSessionIdRef.current = conversationSessionId;
-  }, [conversationSessionId]);
+    ensureBrowserSessionId();
+  }, [ensureBrowserSessionId]);
 
   useEffect(() => {
     if (micError) {
@@ -347,8 +388,9 @@ export default function DemoSplashPage() {
           wakeWordUsed: boolean
         ) => {
           setStatusState("thinking");
+          const sessionId = ensureBrowserSessionId();
           const agentResponse = await answerUserQuestion({
-            sessionId: conversationSessionIdRef.current,
+            sessionId,
             text: rawText,
             strippedText,
             wakeWordDetected: wakeWordUsed,
@@ -357,12 +399,6 @@ export default function DemoSplashPage() {
           });
 
           setMicError(null);
-
-          if (agentResponse.ended) {
-            setConversationSessionId(null);
-          } else {
-            setConversationSessionId(agentResponse.sessionId);
-          }
 
           if (agentResponse.reply) {
             setStatusState("answering");
@@ -449,7 +485,7 @@ export default function DemoSplashPage() {
         }
       }
     },
-    [activeWakeWord, listenToUser]
+    [activeWakeWord, ensureBrowserSessionId, listenToUser]
   );
 
   const speakPointOfInterest = useCallback(
