@@ -3,8 +3,11 @@
 import { useMemo, useState } from "react";
 
 import { userPreferences } from "@/data/user-preferences";
-import { changiJewelMain } from "@/data/changi-jewel/main";
-import { changiJewelRainVortext } from "@/data/changi-jewel/rain-vortext";
+import {
+  changiJewelKnowledgeBase,
+  changiJewelMain,
+  changiJewelRainVortext,
+} from "@/data/changi-jewel";
 import {
   PlaceOfInterest,
   generateStorytellingForPlaceOfInterest,
@@ -36,6 +39,11 @@ export default function StorytellerPage() {
   const [isNarrating, setIsNarrating] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [narrationLog, setNarrationLog] = useState<NarrationEntry[]>([]);
+  const knowledge = changiJewelKnowledgeBase;
+  const overviewBullets = knowledge.overview.bullets?.slice(0, 3) ?? [];
+  const quickFactCards = knowledge.quickFacts.slice(0, 6);
+  const historyHighlights = knowledge.history.slice(0, 4);
+  const featuredFaqs = knowledge.faqs.slice(0, 3);
 
   const selectedPoi = useMemo(() => {
     return poiCatalog.find((poi) => poi.id === selectedPoiId) ?? null;
@@ -243,6 +251,102 @@ export default function StorytellerPage() {
                 Narrations triggered here will appear in a running log.
               </p>
             )}
+          </div>
+        </section>
+
+        <section className="rounded-2xl border border-slate-800 bg-slate-900/50 p-6">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+            <div className="max-w-2xl">
+              <h2 className="text-xl font-semibold">
+                Changi Jewel knowledge snapshot
+              </h2>
+              <p className="mt-2 text-sm text-slate-400">
+                {knowledge.overview.summary}
+              </p>
+              <ul className="mt-3 space-y-2 text-xs text-slate-400">
+                {overviewBullets.map((bullet) => (
+                  <li key={bullet} className="flex gap-2">
+                    <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-400" />
+                    <span>{bullet}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+            <div className="rounded-xl border border-slate-800/60 bg-slate-950/40 px-4 py-3 text-xs text-slate-400">
+              <span className="uppercase tracking-wide text-slate-500">
+                Last verified
+              </span>
+              <p className="mt-1 text-sm font-semibold text-slate-100">
+                {knowledge.overview.lastVerified}
+              </p>
+              <p className="mt-1 text-[11px] leading-4 text-slate-500">
+                Refer to `src/data/changi-jewel/knowledge-base.ts` for full
+                context and references.
+              </p>
+            </div>
+          </div>
+
+          <div className="mt-6 grid gap-4 md:grid-cols-2">
+            {quickFactCards.map((fact) => (
+              <article
+                key={fact.label}
+                className="flex flex-col gap-2 rounded-xl border border-slate-800/60 bg-slate-950/60 p-4"
+              >
+                <div className="text-xs uppercase tracking-wide text-slate-500">
+                  {fact.category}
+                </div>
+                <h3 className="text-sm font-semibold text-slate-100">
+                  {fact.label}
+                </h3>
+                <p className="text-xs leading-6 text-slate-400">{fact.value}</p>
+              </article>
+            ))}
+          </div>
+
+          <div className="mt-6 grid gap-6 lg:grid-cols-2">
+            <div>
+              <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
+                History highlights
+              </h3>
+              <ol className="mt-3 space-y-3 text-sm text-slate-300">
+                {historyHighlights.map((event, index) => (
+                  <li
+                    key={`${event.title}-${index}`}
+                    className="rounded-lg border border-slate-800/60 bg-slate-950/50 p-3"
+                  >
+                    <span className="text-xs uppercase tracking-wide text-emerald-300">
+                      Phase {index + 1}
+                    </span>
+                    <p className="mt-1 font-medium text-slate-100">
+                      {event.title}
+                    </p>
+                    <p className="mt-1 text-xs leading-6 text-slate-400">
+                      {event.summary}
+                    </p>
+                  </li>
+                ))}
+              </ol>
+            </div>
+            <div>
+              <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
+                Frequent traveller questions
+              </h3>
+              <dl className="mt-3 space-y-3 text-sm text-slate-300">
+                {featuredFaqs.map((faq) => (
+                  <div
+                    key={faq.question}
+                    className="rounded-lg border border-slate-800/60 bg-slate-950/50 p-3"
+                  >
+                    <dt className="font-medium text-slate-100">
+                      {faq.question}
+                    </dt>
+                    <dd className="mt-1 text-xs leading-6 text-slate-400">
+                      {faq.answer}
+                    </dd>
+                  </div>
+                ))}
+              </dl>
+            </div>
           </div>
         </section>
 
