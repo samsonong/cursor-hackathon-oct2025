@@ -150,7 +150,8 @@ const KEYWORD_STOPWORDS = new Set([
 
 const INPUT_LENGTH_GUARDRAIL: InputGuardrail = {
   name: "query_length_limit",
-  execute: async ({ input }: { input: string | any[] }) => {
+  execute: async (payload: unknown) => {
+    const { input } = payload as { input: string | any[] };
     const raw =
       typeof input === "string"
         ? input
@@ -200,7 +201,8 @@ const INPUT_LENGTH_GUARDRAIL: InputGuardrail = {
 
 const OUTPUT_NON_EMPTY_GUARDRAIL: OutputGuardrail = {
   name: "non_empty_answer",
-  execute: async ({ agentOutput }: { agentOutput: any }) => {
+  execute: async (payload: unknown) => {
+    const { agentOutput } = payload as { agentOutput: any };
     const text =
       typeof agentOutput === "string"
         ? agentOutput
@@ -244,7 +246,7 @@ function buildSystemPrompt(opts: {
 }
 
 export class TourGuideAgent {
-  private agent: Agent<TourAgentContext>;
+  private agent: Agent;
   private model: string;
   private static instance: TourGuideAgent | null = null;
   private historyStore: ConversationHistoryStore;

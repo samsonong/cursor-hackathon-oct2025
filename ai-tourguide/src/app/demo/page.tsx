@@ -59,6 +59,10 @@ export default function DemoSplashPage() {
     new Array(WAVEFORM_SAMPLES).fill(0)
   );
 
+  // Image upload state
+  const [isUploadingImage, setIsUploadingImage] = useState<boolean>(false);
+  const [imageUploadStatus, setImageUploadStatus] = useState<string>("");
+
   const recognitionRef = useRef<SpeechRecognitionInstance | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const lastSpeechAtRef = useRef<number | null>(null);
@@ -409,6 +413,101 @@ export default function DemoSplashPage() {
     }
   }, [isWakeWordActive]);
 
+  // Image upload handler
+  const handleImageUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    setIsUploadingImage(true);
+    setImageUploadStatus("Uploading image...");
+
+    try {
+      const reader = new FileReader();
+      reader.onloadend = async () => {
+        const imageDataUrl = reader.result as string;
+        
+        setImageUploadStatus("Analyzing image with AI...");
+        
+        // Process image asynchronously in the background using API route
+        try {
+          const response = await fetch('/api/analyze-image', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              imageDataUrl,
+              userQuestion: "Analyze this image and provide detailed tour guide insights about what you see.",
+              placeName: "Changi Jewel",
+              language: "en-SG",
+            }),
+          });
+
+          if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+          }
+
+          const result = await response.json();
+
+          if (result.error) {
+            setImageUploadStatus(`Error: ${result.error}`);
+            return;
+          }
+
+          // Save the analysis as JSON context for future conversations
+          const imageContext = {
+            timestamp: new Date().toISOString(),
+            imageAnalysis: result.analysis,
+            detectedObjects: result.detectedObjects,
+            tourGuideResponse: result.tourGuideResponse,
+            placeName: "Changi Jewel",
+          };
+
+          // Send to backend API
+          try {
+            const contextResponse = await fetch('/api/image-context', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({ imageContext }),
+            });
+
+            if (contextResponse.ok) {
+              const responseData = await contextResponse.json();
+              setImageUploadStatus(`✅ Image analyzed and saved as context! (ID: ${responseData.contextId})`);
+            } else {
+              throw new Error('Failed to save context to backend');
+            }
+          } catch (apiError) {
+            console.error("Failed to save to backend, using localStorage:", apiError);
+            // Fallback to localStorage
+            const existingContexts = JSON.parse(localStorage.getItem('imageContexts') || '[]');
+            existingContexts.push(imageContext);
+            localStorage.setItem('imageContexts', JSON.stringify(existingContexts));
+            setImageUploadStatus("✅ Image analyzed and saved locally!");
+          }
+          
+          // Clear status after 3 seconds
+          setTimeout(() => {
+            setImageUploadStatus("");
+          }, 3000);
+        } catch (error) {
+          console.error("Image analysis failed:", error);
+          setImageUploadStatus(`Analysis failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        } finally {
+          setIsUploadingImage(false);
+        }
+      };
+      
+      reader.readAsDataURL(file);
+    } catch (error) {
+      console.error("Image upload failed:", error);
+      setImageUploadStatus(`Upload failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      setIsUploadingImage(false);
+    }
+  };
+
   const rawIntensity = isWakeWordActive ? Math.max(volumeLevel - 0.02, 0) : 0;
   const pulseIntensity = Math.min(1, rawIntensity * 1.55);
   const haloScale = isWakeWordActive ? 0.92 + pulseIntensity * 0.95 : 0.9;
@@ -534,6 +633,44 @@ export default function DemoSplashPage() {
           >
             {statusLabel}
           </span>
+        </div>
+
+        {/* Image Upload Button */}
+        <div className="flex flex-col items-center gap-3">
+          <label className="relative">
+            <input
+              type="file"
+              accept="image/*"
+              onChange={handleImageUpload}
+              disabled={isUploadingImage}
+              className="sr-only"
+            />
+            <div className={`
+              inline-flex items-center gap-2 rounded-full px-6 py-3 text-sm font-semibold transition-all duration-200 cursor-pointer
+              ${isUploadingImage 
+                ? 'bg-slate-700 text-slate-300 cursor-not-allowed' 
+                : 'bg-emerald-500/20 text-emerald-200 hover:bg-emerald-500/30 border border-emerald-400/40 hover:border-emerald-400/60'
+              }
+            `}>
+              {isUploadingImage ? (
+                <>
+                  <span className="animate-spin">⟳</span>
+                  Processing...
+                </>
+              ) : (
+                <>
+                  <span>📸</span>
+                  Upload Photo for AI Analysis
+                </>
+              )}
+            </div>
+          </label>
+          
+          {imageUploadStatus && (
+            <p className="text-xs text-slate-400 max-w-sm text-center">
+              {imageUploadStatus}
+            </p>
+          )}
         </div>
 
         {micError ? (

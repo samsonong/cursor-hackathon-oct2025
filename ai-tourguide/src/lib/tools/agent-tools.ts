@@ -162,7 +162,7 @@ export const knowledgeLookupTool = tool({
   strict: true,
   execute: async (
     input: KnowledgeLookupInput,
-    runCtx
+    runCtx: { context?: TourAgentContext }
   ): Promise<string> => {
     const limit = input.limit ?? 3;
     const context = runCtx?.context as TourAgentContext | undefined;
