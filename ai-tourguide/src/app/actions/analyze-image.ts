@@ -38,7 +38,12 @@ export async function analyzeImageAction(
   request: ImageAnalysisRequest
 ): Promise<ImageAnalysisResponse> {
   try {
-    const { imageDataUrl, userQuestion, placeName = "Changi Jewel", language = "en-SG" } = request;
+    const {
+      imageDataUrl,
+      userQuestion,
+      placeName = "Changi Jewel",
+      language = "en-SG",
+    } = request;
 
     if (!imageDataUrl) {
       throw new Error("Image data URL is required for analysis.");
@@ -46,8 +51,14 @@ export async function analyzeImageAction(
 
     const openai = getOpenAIClient();
 
+    console.info("[OpenAI][ImageAnalysis] starting", {
+      placeName,
+      hasQuestion: Boolean(userQuestion),
+      language,
+    });
+
     // Extract base64 data from data URL
-    const base64Data = imageDataUrl.split(',')[1];
+    const base64Data = imageDataUrl.split(",")[1];
     if (!base64Data) {
       throw new Error("Invalid image data URL format.");
     }
@@ -67,36 +78,54 @@ Language: ${language}
 
 Be conversational and educational, as if you're personally guiding someone through the location.`;
 
-    const userPrompt = userQuestion 
+    const userPrompt = userQuestion
       ? `Please analyze this image and answer: "${userQuestion}"`
       : "Please analyze this image and tell me what you see, with interesting details about any Changi Jewel features visible.";
 
-    const response = await openai.chat.completions.create({
-      model: "gpt-4o",
-      messages: [
-        {
-          role: "system",
-          content: systemPrompt,
-        },
-        {
-          role: "user",
-          content: [
-            {
-              type: "text",
-              text: userPrompt,
-            },
-            {
-              type: "image_url",
-              image_url: {
-                url: imageDataUrl,
-                detail: "high",
+    let response;
+    try {
+      response = await openai.chat.completions.create({
+        model: "gpt-4o",
+        messages: [
+          {
+            role: "system",
+            content: systemPrompt,
+          },
+          {
+            role: "user",
+            content: [
+              {
+                type: "text",
+                text: userPrompt,
               },
-            },
-          ],
-        },
-      ],
-      max_tokens: 1000,
-      temperature: 0.7,
+              {
+                type: "image_url",
+                image_url: {
+                  url: imageDataUrl,
+                  detail: "high",
+                },
+              },
+            ],
+          },
+        ],
+        max_tokens: 1000,
+        temperature: 0.7,
+      });
+    } catch (error) {
+      console.error("[OpenAI][ImageAnalysis] failed", {
+        placeName,
+        hasQuestion: Boolean(userQuestion),
+        language,
+        error,
+      });
+      throw error;
+    }
+
+    console.info("[OpenAI][ImageAnalysis] completed", {
+      placeName,
+      hasQuestion: Boolean(userQuestion),
+      language,
+      usage: response.usage,
     });
 
     const analysis = response.choices[0]?.message?.content;
@@ -116,7 +145,8 @@ Be conversational and educational, as if you're personally guiding someone throu
     console.error("Image analysis error:", error);
     return {
       analysis: "Unable to analyze the image at this time.",
-      tourGuideResponse: "I'm sorry, I couldn't analyze your image. Please try again or ask me about Changi Jewel in another way.",
+      tourGuideResponse:
+        "I'm sorry, I couldn't analyze your image. Please try again or ask me about Changi Jewel in another way.",
       error: error instanceof Error ? error.message : "Unknown error occurred",
     };
   }
@@ -125,14 +155,41 @@ Be conversational and educational, as if you're personally guiding someone throu
 function extractDetectedObjects(analysis: string): string[] {
   // Simple keyword extraction for common Changi Jewel features
   const keywords = [
-    "rain vortex", "waterfall", "canopy park", "garden", "shopping", "restaurant",
-    "airport", "terminal", "departure", "arrival", "check-in", "security",
-    "architecture", "glass", "steel", "modern", "contemporary", "design",
-    "trees", "plants", "nature", "indoor", "outdoor", "bridge", "walkway",
-    "escalator", "elevator", "stairs", "floor", "ceiling", "wall", "window"
+    "rain vortex",
+    "waterfall",
+    "canopy park",
+    "garden",
+    "shopping",
+    "restaurant",
+    "airport",
+    "terminal",
+    "departure",
+    "arrival",
+    "check-in",
+    "security",
+    "architecture",
+    "glass",
+    "steel",
+    "modern",
+    "contemporary",
+    "design",
+    "trees",
+    "plants",
+    "nature",
+    "indoor",
+    "outdoor",
+    "bridge",
+    "walkway",
+    "escalator",
+    "elevator",
+    "stairs",
+    "floor",
+    "ceiling",
+    "wall",
+    "window",
   ];
 
-  const detected = keywords.filter(keyword => 
+  const detected = keywords.filter((keyword) =>
     analysis.toLowerCase().includes(keyword.toLowerCase())
   );
 

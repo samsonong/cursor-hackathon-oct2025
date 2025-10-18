@@ -118,6 +118,21 @@ async function playAudioFromDataUrl(dataUrl: string): Promise<void> {
   });
 }
 
+function isMeaningfulSpeech(input: string): boolean {
+  const trimmed = input.trim();
+  if (!trimmed) {
+    return false;
+  }
+
+  const alphanumeric = trimmed.replace(/[^a-z0-9]+/gi, "");
+  if (alphanumeric.length >= 3) {
+    return true;
+  }
+
+  const words = trimmed.split(/\s+/).filter(Boolean);
+  return words.length >= 2;
+}
+
 export default function DemoSplashPage() {
   const activeWakeWord = useMemo(() => getWakeWord(), []);
   const defaultVoiceId = useMemo(
@@ -378,6 +393,13 @@ export default function DemoSplashPage() {
       setIsWakeWordActive(true);
       setMicError(null);
 
+      const sessionId = ensureBrowserSessionId();
+      console.info("[OpenAI][AgentCall] wake word detected", {
+        sessionId,
+        wakeWord: detection.wakeWord,
+        strippedPreview: detection.stripped?.slice(0, 80) ?? null,
+      });
+
       if (recognitionRef.current) {
         try {
           recognitionRef.current.stop();
@@ -395,7 +417,12 @@ export default function DemoSplashPage() {
           wakeWordUsed: boolean
         ) => {
           setStatusState("thinking");
-          const sessionId = ensureBrowserSessionId();
+          const preview = rawText.slice(0, 120);
+          console.info("[OpenAI][AgentCall] requesting", {
+            sessionId,
+            wakeWordUsed,
+            preview,
+          });
           const agentResponse = await answerUserQuestion({
             sessionId,
             text: rawText,
@@ -403,6 +430,14 @@ export default function DemoSplashPage() {
             wakeWordDetected: wakeWordUsed,
             wakeWord: activeWakeWord,
             placeName: currentPoiRef.current?.name,
+          });
+
+          console.info("[OpenAI][AgentCall] completed", {
+            sessionId,
+            wakeWordUsed,
+            preview,
+            ended: agentResponse.ended,
+            replyPresent: Boolean(agentResponse.reply),
           });
 
           setMicError(null);
@@ -425,8 +460,15 @@ export default function DemoSplashPage() {
         const capturedSpeech = await listenToUser(detection.stripped ?? "");
         const trimmedSpeech = capturedSpeech?.replace(/\s+/g, " ").trim();
 
-        if (!trimmedSpeech) {
+        if (!trimmedSpeech || !isMeaningfulSpeech(trimmedSpeech)) {
           setStatusState("waiting");
+          console.info(
+            "[OpenAI][AgentCall] skipped due to non-meaningful speech",
+            {
+              sessionId,
+              wakeWord: detection.wakeWord,
+            }
+          );
           return;
         }
 
@@ -436,11 +478,18 @@ export default function DemoSplashPage() {
           .replace(/\s+/g, " ")
           .trim();
 
-        const initialResponse = await callAgent(
-          rawQuestion,
-          trimmedSpeech,
-          true
-        );
+        let initialResponse;
+        try {
+          initialResponse = await callAgent(rawQuestion, trimmedSpeech, true);
+        } catch (agentError) {
+          console.error("[OpenAI][AgentCall] failed", {
+            sessionId,
+            wakeWordUsed: true,
+            preview: rawQuestion.slice(0, 120),
+            error: agentError,
+          });
+          throw agentError;
+        }
 
         if (initialResponse.ended) {
           return;
@@ -451,13 +500,23 @@ export default function DemoSplashPage() {
           const followUpRaw = await listenToUser("");
           const followUp = followUpRaw?.replace(/\s+/g, " ").trim();
 
-          if (!followUp) {
+          if (!followUp || !isMeaningfulSpeech(followUp)) {
             break;
           }
 
-          const followUpResponse = await callAgent(followUp, followUp, false);
+          try {
+            const followUpResponse = await callAgent(followUp, followUp, false);
 
-          if (followUpResponse.ended) {
+            if (followUpResponse.ended) {
+              break;
+            }
+          } catch (agentError) {
+            console.error("[OpenAI][AgentCall] follow-up failed", {
+              sessionId,
+              wakeWordUsed: false,
+              preview: followUp.slice(0, 120),
+              error: agentError,
+            });
             break;
           }
         }

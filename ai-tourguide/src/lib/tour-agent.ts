@@ -296,6 +296,14 @@ export class TourGuideAgent {
       throw new Error("Query text must be provided.");
     }
 
+    console.info("[OpenAI][TourGuideAgent] starting", {
+      queryPreview: query.slice(0, 160),
+      placeName,
+      lang,
+      minimumKnowledgeScore,
+      sessionId,
+    });
+
     const conversationHistory = await this.historyStore
       .loadHistory(10, sessionId)
       .catch((error) => {
@@ -351,6 +359,10 @@ export class TourGuideAgent {
         query
       );
     } catch (error) {
+      console.error("[OpenAI][TourGuideAgent] primary run failed", {
+        queryPreview: query.slice(0, 160),
+        error,
+      });
       return this.handleAgentError(error, { query });
     }
 
@@ -377,6 +389,10 @@ export class TourGuideAgent {
           query
         );
       } catch (error) {
+        console.error("[OpenAI][TourGuideAgent] fallback run failed", {
+          queryPreview: query.slice(0, 160),
+          error,
+        });
         return this.handleAgentError(error, { query });
       }
 
@@ -421,6 +437,15 @@ export class TourGuideAgent {
       user: query,
       assistant: summary.response.answer,
       timestamp: new Date().toISOString(),
+    });
+
+    console.info("[OpenAI][TourGuideAgent] completed", {
+      queryPreview: query.slice(0, 160),
+      fallbackAttempted,
+      usedWebSearch: summary.response.usedWebSearch,
+      knowledgeHits: summary.response.knowledgeReferences.length,
+      totalTokens: summary.usage.totalTokens,
+      requests: summary.usage.requests,
     });
 
     return summary.response;
