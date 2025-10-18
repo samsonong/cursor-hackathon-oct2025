@@ -1,4 +1,4 @@
-const DEFAULT_WAKE_WORD = process.env.WAKE_WORD || "hey wei jie";
+export const DEFAULT_WAKE_WORD = process.env.WAKE_WORD || "hey wei jie";
 
 export type WakeWordDetectionResult = {
   matched: boolean;
@@ -29,6 +29,9 @@ export function detectAndStripWakeWord(
   };
 }
 
-export function hasWakeWordPrefix(text: string, wakeWord = DEFAULT_WAKE_WORD) {
+export function hasWakeWordPrefix(
+  text: string,
+  wakeWord = DEFAULT_WAKE_WORD
+) {
   return detectAndStripWakeWord(text, wakeWord).matched;
 }
