@@ -2,13 +2,19 @@
 
 import { useMemo, useState } from "react";
 
+import { narratePointOfInterestAction } from "@/app/actions/narrate-point-of-interest";
+import { narrateWithElevenLabsAction } from "@/app/actions/narrate-with-elevenlabs";
 import { userPreferences } from "@/data/user-preferences";
-import { changiJewelMain } from "@/data/changi-jewel/main";
-import { changiJewelRainVortext } from "@/data/changi-jewel/rain-vortext";
+import {
+  changiJewelKnowledgeBase,
+  changiJewelMain,
+  changiJewelRainVortext,
+} from "@/data/changi-jewel";
 import {
   PlaceOfInterest,
   generateStorytellingForPlaceOfInterest,
   narrateToUser,
+  prepareUserPreferences,
 } from "@/lib/storytelling";
 
 type NarrationEntry = {
@@ -19,6 +25,15 @@ type NarrationEntry = {
 };
 
 const poiCatalog: PlaceOfInterest[] = [changiJewelMain, changiJewelRainVortext];
+const preparedPreferences = prepareUserPreferences(userPreferences);
+
+function toTitleCase(value: string): string {
+  return value
+    .split(" ")
+    .filter(Boolean)
+    .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
+    .join(" ");
+}
 
 function formatTimestamp(timestamp: number | null): string {
   if (!timestamp) {
@@ -26,6 +41,40 @@ function formatTimestamp(timestamp: number | null): string {
   }
 
   return new Date(timestamp).toLocaleTimeString();
+}
+
+async function playAudioFromDataUrl(dataUrl: string): Promise<void> {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  const audio = new Audio(dataUrl);
+
+  await new Promise<void>((resolve, reject) => {
+    const handleError = (event: Event) => {
+      audio.removeEventListener("ended", handleEnded);
+      audio.removeEventListener("error", handleError);
+      reject(new Error(`Audio playback failed: ${event.type}`));
+    };
+
+    const handleEnded = () => {
+      audio.removeEventListener("ended", handleEnded);
+      audio.removeEventListener("error", handleError);
+      resolve();
+    };
+
+    audio.addEventListener("ended", handleEnded, { once: true });
+    audio.addEventListener("error", handleError, { once: true });
+
+    const playPromise = audio.play();
+
+    if (playPromise && typeof playPromise.catch === "function") {
+      playPromise.catch((error) => {
+        audio.pause();
+        reject(error);
+      });
+    }
+  });
 }
 
 export default function StorytellerPage() {
@@ -36,10 +85,56 @@ export default function StorytellerPage() {
   const [isNarrating, setIsNarrating] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [narrationLog, setNarrationLog] = useState<NarrationEntry[]>([]);
+  const knowledge = changiJewelKnowledgeBase;
+  const overviewBullets = knowledge.overview.bullets?.slice(0, 3) ?? [];
+  const quickFactCards = knowledge.quickFacts.slice(0, 6);
+  const historyHighlights = knowledge.history.slice(0, 4);
+  const featuredFaqs = knowledge.faqs.slice(0, 3);
+  const personaExtras = preparedPreferences.extras;
+  const hasPersonaExtras = Object.keys(personaExtras).length > 0;
+
+  const toneDisplay = (() => {
+    const rawTone =
+      typeof userPreferences.preferredTone === "string"
+        ? userPreferences.preferredTone.trim()
+        : "";
+    const normalized = preparedPreferences.preferredTone;
+    if (rawTone && rawTone.toLowerCase() !== normalized) {
+      return `${toTitleCase(rawTone)} → ${toTitleCase(normalized)}`;
+    }
+    return toTitleCase(normalized);
+  })();
+
+  const paceDisplay = (() => {
+    const rawPace =
+      typeof userPreferences.preferredPace === "string"
+        ? userPreferences.preferredPace.trim()
+        : "";
+    const normalized = preparedPreferences.preferredPace;
+    if (rawPace && rawPace.toLowerCase() !== normalized) {
+      return `${toTitleCase(rawPace)} → ${toTitleCase(normalized)}`;
+    }
+    return toTitleCase(normalized);
+  })();
 
   const selectedPoi = useMemo(() => {
     return poiCatalog.find((poi) => poi.id === selectedPoiId) ?? null;
   }, [selectedPoiId]);
+
+  const recordNarration = (story: string, poi: PlaceOfInterest) => {
+    setLatestStory(story);
+    setNarrationLog((prev) =>
+      [
+        {
+          poiId: poi.id,
+          poiName: poi.name,
+          story,
+          timestamp: Date.now(),
+        },
+        ...prev,
+      ].slice(0, 12)
+    );
+  };
 
   const speakPointOfInterest = async () => {
     if (!selectedPoi) {
@@ -51,32 +146,62 @@ export default function StorytellerPage() {
     setIsNarrating(true);
 
     try {
-      const story = generateStorytellingForPlaceOfInterest(
+      const story = await narratePointOfInterestAction({
+        poi: selectedPoi,
+        preferences: userPreferences,
+      });
+
+      recordNarration(story, selectedPoi);
+
+      let audioPlayed = false;
+
+      try {
+        const audioDataUrl = await narrateWithElevenLabsAction({
+          text: story,
+        });
+
+        await playAudioFromDataUrl(audioDataUrl);
+        audioPlayed = true;
+      } catch (audioError) {
+        console.error("ElevenLabs narration failed", audioError);
+      }
+
+      if (!audioPlayed) {
+        await narrateToUser(story);
+      }
+    } catch (untypedError) {
+      console.error("AI narration failed", untypedError);
+
+      const fallbackStory = generateStorytellingForPlaceOfInterest(
         userPreferences,
         selectedPoi
       );
 
-      setLatestStory(story);
-      setNarrationLog((prev) =>
-        [
-          {
-            poiId: selectedPoi.id,
-            poiName: selectedPoi.name,
-            story,
-            timestamp: Date.now(),
-          },
-          ...prev,
-        ].slice(0, 12)
-      );
+      recordNarration(fallbackStory, selectedPoi);
 
-      await narrateToUser(story);
-    } catch (untypedError) {
-      console.error(untypedError);
       const message =
         untypedError instanceof Error
-          ? untypedError.message
-          : "Unable to craft a story just now.";
+          ? `AI narrator unavailable. Showing template narration instead. (${untypedError.message})`
+          : "AI narrator unavailable. Showing template narration instead.";
+
       setError(message);
+
+      let audioPlayed = false;
+
+      try {
+        const fallbackAudioDataUrl = await narrateWithElevenLabsAction({
+          text: fallbackStory,
+        });
+
+        await playAudioFromDataUrl(fallbackAudioDataUrl);
+        audioPlayed = true;
+      } catch (audioError) {
+        console.error("ElevenLabs fallback narration failed", audioError);
+      }
+
+      if (!audioPlayed) {
+        await narrateToUser(fallbackStory);
+      }
     } finally {
       setIsNarrating(false);
     }
@@ -162,42 +287,66 @@ export default function StorytellerPage() {
               <div className="flex justify-between gap-4">
                 <dt className="text-slate-500">Name</dt>
                 <dd className="font-medium text-slate-100">
-                  {userPreferences.travelerName}
+                  {userPreferences.travelerName ??
+                    preparedPreferences.travelerName}
                 </dd>
               </div>
               <div className="flex justify-between gap-4">
                 <dt className="text-slate-500">Companions</dt>
                 <dd className="max-w-[60%] text-right text-slate-100">
-                  {userPreferences.tripCompanions.join(", ")}
+                  {preparedPreferences.tripCompanions.length
+                    ? preparedPreferences.tripCompanions.join(", ")
+                    : "—"}
                 </dd>
               </div>
               <div className="flex justify-between gap-4">
                 <dt className="text-slate-500">Interests</dt>
                 <dd className="max-w-[60%] text-right text-slate-100">
-                  {userPreferences.interests.join(", ")}
+                  {preparedPreferences.interests.length
+                    ? preparedPreferences.interests.join(", ")
+                    : "—"}
                 </dd>
               </div>
               <div className="flex justify-between gap-4">
                 <dt className="text-slate-500">Tone</dt>
-                <dd className="text-slate-100">
-                  {userPreferences.preferredTone}
-                </dd>
+                <dd className="text-slate-100">{toneDisplay}</dd>
               </div>
               <div className="flex justify-between gap-4">
                 <dt className="text-slate-500">Pace</dt>
-                <dd className="text-slate-100">
-                  {userPreferences.preferredPace}
+                <dd className="text-slate-100">{paceDisplay}</dd>
+              </div>
+              <div className="flex justify-between gap-4">
+                <dt className="text-slate-500">Accessibility</dt>
+                <dd className="max-w-[60%] text-right text-slate-100">
+                  {preparedPreferences.accessibilityNotes ?? "—"}
                 </dd>
               </div>
-              {userPreferences.accessibilityNotes ? (
-                <div className="flex justify-between gap-4">
-                  <dt className="text-slate-500">Accessibility</dt>
-                  <dd className="max-w-[60%] text-right text-slate-100">
-                    {userPreferences.accessibilityNotes}
-                  </dd>
-                </div>
-              ) : null}
             </dl>
+            {hasPersonaExtras ? (
+              <div className="mt-5 rounded-xl border border-slate-800/70 bg-slate-950/60 p-4 text-xs text-slate-300">
+                <h3 className="text-[13px] font-semibold uppercase tracking-wide text-slate-500">
+                  Persona context
+                </h3>
+                <dl className="mt-3 space-y-2">
+                  {Object.entries(personaExtras).map(([key, value]) => {
+                    const readableKey = key
+                      .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+                      .replace(/[-_]+/g, " ");
+
+                    return (
+                      <div key={key} className="flex justify-between gap-4">
+                        <dt className="text-slate-500">
+                          {toTitleCase(readableKey)}
+                        </dt>
+                        <dd className="max-w-[60%] text-right text-slate-100">
+                          {value}
+                        </dd>
+                      </div>
+                    );
+                  })}
+                </dl>
+              </div>
+            ) : null}
           </aside>
         </section>
 
@@ -243,6 +392,102 @@ export default function StorytellerPage() {
                 Narrations triggered here will appear in a running log.
               </p>
             )}
+          </div>
+        </section>
+
+        <section className="rounded-2xl border border-slate-800 bg-slate-900/50 p-6">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+            <div className="max-w-2xl">
+              <h2 className="text-xl font-semibold">
+                Changi Jewel knowledge snapshot
+              </h2>
+              <p className="mt-2 text-sm text-slate-400">
+                {knowledge.overview.summary}
+              </p>
+              <ul className="mt-3 space-y-2 text-xs text-slate-400">
+                {overviewBullets.map((bullet) => (
+                  <li key={bullet} className="flex gap-2">
+                    <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-400" />
+                    <span>{bullet}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+            <div className="rounded-xl border border-slate-800/60 bg-slate-950/40 px-4 py-3 text-xs text-slate-400">
+              <span className="uppercase tracking-wide text-slate-500">
+                Last verified
+              </span>
+              <p className="mt-1 text-sm font-semibold text-slate-100">
+                {knowledge.overview.lastVerified}
+              </p>
+              <p className="mt-1 text-[11px] leading-4 text-slate-500">
+                Refer to `src/data/changi-jewel/knowledge-base.ts` for full
+                context and references.
+              </p>
+            </div>
+          </div>
+
+          <div className="mt-6 grid gap-4 md:grid-cols-2">
+            {quickFactCards.map((fact) => (
+              <article
+                key={fact.label}
+                className="flex flex-col gap-2 rounded-xl border border-slate-800/60 bg-slate-950/60 p-4"
+              >
+                <div className="text-xs uppercase tracking-wide text-slate-500">
+                  {fact.category}
+                </div>
+                <h3 className="text-sm font-semibold text-slate-100">
+                  {fact.label}
+                </h3>
+                <p className="text-xs leading-6 text-slate-400">{fact.value}</p>
+              </article>
+            ))}
+          </div>
+
+          <div className="mt-6 grid gap-6 lg:grid-cols-2">
+            <div>
+              <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
+                History highlights
+              </h3>
+              <ol className="mt-3 space-y-3 text-sm text-slate-300">
+                {historyHighlights.map((event, index) => (
+                  <li
+                    key={`${event.title}-${index}`}
+                    className="rounded-lg border border-slate-800/60 bg-slate-950/50 p-3"
+                  >
+                    <span className="text-xs uppercase tracking-wide text-emerald-300">
+                      Phase {index + 1}
+                    </span>
+                    <p className="mt-1 font-medium text-slate-100">
+                      {event.title}
+                    </p>
+                    <p className="mt-1 text-xs leading-6 text-slate-400">
+                      {event.summary}
+                    </p>
+                  </li>
+                ))}
+              </ol>
+            </div>
+            <div>
+              <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
+                Frequent traveller questions
+              </h3>
+              <dl className="mt-3 space-y-3 text-sm text-slate-300">
+                {featuredFaqs.map((faq) => (
+                  <div
+                    key={faq.question}
+                    className="rounded-lg border border-slate-800/60 bg-slate-950/50 p-3"
+                  >
+                    <dt className="font-medium text-slate-100">
+                      {faq.question}
+                    </dt>
+                    <dd className="mt-1 text-xs leading-6 text-slate-400">
+                      {faq.answer}
+                    </dd>
+                  </div>
+                ))}
+              </dl>
+            </div>
           </div>
         </section>
 
