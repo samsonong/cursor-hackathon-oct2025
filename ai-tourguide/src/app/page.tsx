@@ -17,6 +17,7 @@ import {
   prepareUserPreferences,
 } from "@/lib/storytelling";
 import { detectAndStripWakeWord, getWakeWord } from "@/lib/wake-word";
+import { VOICE_CONFIG } from "@/services/voice/data";
 
 type NarrationEntry = {
   poiId: string;
@@ -123,6 +124,9 @@ async function playAudioFromDataUrl(dataUrl: string): Promise<void> {
 export default function StorytellerPage() {
   const [selectedPoiId, setSelectedPoiId] = useState<string>(
     poiCatalog[0]?.id ?? ""
+  );
+  const [selectedVoiceId, setSelectedVoiceId] = useState<string>(
+    Object.values(VOICE_CONFIG)[0]?.id ?? ""
   );
   const [latestStory, setLatestStory] = useState<string>("");
   const [isNarrating, setIsNarrating] = useState<boolean>(false);
@@ -349,6 +353,7 @@ export default function StorytellerPage() {
       try {
         const audioDataUrl = await narrateWithElevenLabsAction({
           text: story,
+          voiceId: selectedVoiceId,
         });
 
         await playAudioFromDataUrl(audioDataUrl);
@@ -382,6 +387,7 @@ export default function StorytellerPage() {
       try {
         const fallbackAudioDataUrl = await narrateWithElevenLabsAction({
           text: fallbackStory,
+          voiceId: selectedVoiceId,
         });
 
         await playAudioFromDataUrl(fallbackAudioDataUrl);
@@ -495,6 +501,24 @@ export default function StorytellerPage() {
                     </div>
                   ) : null}
                 </div>
+
+                <label className="text-xs font-medium uppercase tracking-wide text-slate-500">
+                  Voice model
+                  <select
+                    className="mt-1 w-full rounded-lg border border-slate-800 bg-slate-950/80 px-3 py-2 text-sm text-slate-100 focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/30"
+                    value={selectedVoiceId}
+                    onChange={(event) =>
+                      setSelectedVoiceId(event.target.value)
+                    }
+                    aria-label="Voice model"
+                  >
+                    {Object.entries(VOICE_CONFIG).map(([name, config]) => (
+                      <option key={config.id} value={config.id}>
+                        {name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
 
                 <span className="text-xs font-medium uppercase tracking-wide text-slate-500">
                   Quick narrations
