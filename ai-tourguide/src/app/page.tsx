@@ -8,7 +8,7 @@ import { userPreferences } from "@/data/user-preferences";
 import {
   changiJewelKnowledgeBase,
   changiJewelMain,
-  changiJewelRainVortext,
+  changiJewelRainVortex,
 } from "@/data/changi-jewel";
 import {
   PlaceOfInterest,
@@ -24,7 +24,7 @@ type NarrationEntry = {
   timestamp: number;
 };
 
-const poiCatalog: PlaceOfInterest[] = [changiJewelMain, changiJewelRainVortext];
+const poiCatalog: PlaceOfInterest[] = [changiJewelMain, changiJewelRainVortex];
 const preparedPreferences = prepareUserPreferences(userPreferences);
 
 function toTitleCase(value: string): string {
@@ -136,8 +136,8 @@ export default function StorytellerPage() {
     );
   };
 
-  const speakPointOfInterest = async () => {
-    if (!selectedPoi) {
+  const speakPointOfInterest = async (poi: PlaceOfInterest | null) => {
+    if (!poi) {
       setError("Select a point of interest to continue.");
       return;
     }
@@ -147,11 +147,11 @@ export default function StorytellerPage() {
 
     try {
       const story = await narratePointOfInterestAction({
-        poi: selectedPoi,
+        poi,
         preferences: userPreferences,
       });
 
-      recordNarration(story, selectedPoi);
+      recordNarration(story, poi);
 
       let audioPlayed = false;
 
@@ -174,10 +174,10 @@ export default function StorytellerPage() {
 
       const fallbackStory = generateStorytellingForPlaceOfInterest(
         userPreferences,
-        selectedPoi
+        poi
       );
 
-      recordNarration(fallbackStory, selectedPoi);
+      recordNarration(fallbackStory, poi);
 
       const message =
         untypedError instanceof Error
@@ -205,6 +205,11 @@ export default function StorytellerPage() {
     } finally {
       setIsNarrating(false);
     }
+  };
+
+  const handleQuickNarrate = async (poi: PlaceOfInterest) => {
+    setSelectedPoiId(poi.id);
+    await speakPointOfInterest(poi);
   };
 
   return (
@@ -235,21 +240,34 @@ export default function StorytellerPage() {
                 </p>
               </div>
 
-              <label className="text-xs font-medium uppercase tracking-wide text-slate-500">
-                Point of interest
-                <select
-                  className="mt-1 w-full rounded-lg border border-slate-800 bg-slate-950/80 px-3 py-2 text-sm text-slate-100 focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/30"
-                  value={selectedPoiId}
-                  onChange={(event) => setSelectedPoiId(event.target.value)}
-                  aria-label="Point of interest"
-                >
-                  {poiCatalog.map((poi) => (
-                    <option key={poi.id} value={poi.id}>
-                      {poi.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
+              <div className="flex flex-col gap-2">
+                <span className="text-xs font-medium uppercase tracking-wide text-slate-500">
+                  Quick narrations
+                </span>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {poiCatalog.map((poi) => {
+                    const isActive = poi.id === selectedPoiId;
+                    return (
+                      <button
+                        key={poi.id}
+                        type="button"
+                        className={`inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold transition focus:outline-none focus:ring-2 focus:ring-emerald-500/60 disabled:cursor-not-allowed ${
+                          isActive
+                            ? "bg-emerald-500 text-emerald-950 hover:bg-emerald-400"
+                            : "bg-slate-800/80 text-slate-100 hover:bg-slate-700/70"
+                        }`}
+                        onClick={() => handleQuickNarrate(poi)}
+                        disabled={isNarrating}
+                        aria-pressed={isActive}
+                      >
+                        {isActive && isNarrating
+                          ? "Narrating..."
+                          : `Narrate ${poi.name}`}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
 
               {selectedPoi ? (
                 <div className="rounded-xl border border-slate-800/60 bg-slate-950/70 p-4 text-sm text-slate-300">
@@ -267,15 +285,6 @@ export default function StorytellerPage() {
                   </ul>
                 </div>
               ) : null}
-
-              <button
-                type="button"
-                className="mt-2 inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-500 px-4 py-2 text-sm font-semibold text-emerald-950 transition hover:bg-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/60 disabled:cursor-not-allowed disabled:bg-emerald-700/60"
-                onClick={speakPointOfInterest}
-                disabled={isNarrating || !selectedPoi}
-              >
-                {isNarrating ? "Narrating..." : "Speak point of interest"}
-              </button>
 
               {error ? <p className="text-xs text-rose-300">{error}</p> : null}
             </div>
