@@ -40,6 +40,7 @@ export type AgentQuery = {
     lng?: number;
   };
   minimumKnowledgeScore?: number;
+  sessionId?: string;
 };
 
 export type AgentResponse = {
@@ -289,19 +290,30 @@ export class TourGuideAgent {
       placeName,
       lang = "en-SG",
       minimumKnowledgeScore = 1,
+      sessionId,
     } = input;
     if (!query?.trim()) {
       throw new Error("Query text must be provided.");
     }
 
     const conversationHistory = await this.historyStore
-      .loadHistory(10)
+      .loadHistory(10, sessionId)
       .catch((error) => {
         console.warn("[TourGuideAgent] unable to load conversation history", {
           error,
+          sessionId,
         });
         return [] as ConversationRecord[];
       });
+
+    console.info("[TourGuideAgent] loaded conversation history", {
+      sessionId,
+      historyCount: conversationHistory.length,
+      historyEntries: conversationHistory.map((h) => ({
+        user: h.user,
+        timestamp: h.timestamp,
+      })),
+    });
 
     const historyContext = conversationHistory.length
       ? conversationHistory

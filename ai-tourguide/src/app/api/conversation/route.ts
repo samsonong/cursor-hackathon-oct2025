@@ -171,6 +171,7 @@ export async function POST(req: Request) {
         typeof lat === "number" && typeof lng === "number"
           ? { lat, lng }
           : undefined,
+      sessionId: session.id,
     });
     console.log("agentResult", agentResult);
     const reply = await rewriteReplyToFriendlyTone(agentResult.answer, lang);
