@@ -18,6 +18,10 @@ type ElevenLabsNarrationRequest = {
   voiceId?: string;
   modelId?: string;
   optimizeLatency?: 0 | 1 | 2 | 3 | 4;
+  stability?: number;
+  similarityBoost?: number;
+  style?: number;
+  useSpeakerBoost?: boolean;
 };
 
 /**
@@ -29,6 +33,10 @@ export async function narrateWithElevenLabs({
   voiceId = DEFAULT_VOICE_ID,
   modelId = DEFAULT_MODEL_ID,
   optimizeLatency = 4,
+  stability = 0.5,
+  similarityBoost = 0.75,
+  style = 0.0,
+  useSpeakerBoost = true,
 }: ElevenLabsNarrationRequest): Promise<Buffer> {
   if (!ELEVENLABS_API_KEY) {
     // In a real app, you might want to return a pre-recorded message
@@ -52,8 +60,10 @@ export async function narrateWithElevenLabs({
           model_id: modelId,
           optimize_streaming_latency: optimizeLatency,
           voice_settings: {
-            stability: 0.5,
-            similarity_boost: 0.75,
+            stability: stability,
+            similarity_boost: similarityBoost,
+            style: style,
+            use_speaker_boost: useSpeakerBoost,
           },
         }),
       }
