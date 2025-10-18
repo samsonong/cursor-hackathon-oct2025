@@ -4,7 +4,7 @@ import { VOICE_CONFIG } from "./data";
 
 const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY;
 // This is a default voice ID. You can replace it with your own.
-const DEFAULT_VOICE_ID = VOICE_CONFIG["Cheryl Tan"];
+const DEFAULT_VOICE_ID = VOICE_CONFIG["The OG Founder Utama"];
 const DEFAULT_MODEL_ID = process.env.ELEVENLABS_MODEL_ID ?? "eleven_turbo_v2";
 
 if (!ELEVENLABS_API_KEY) {
