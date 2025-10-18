@@ -160,7 +160,10 @@ export const knowledgeLookupTool = tool({
     "Search the curated Jewel Changi Airport knowledge base for relevant entries. Use this before considering a web search.",
   parameters: KNOWLEDGE_LOOKUP_PARAMETERS,
   strict: true,
-  execute: async (input: KnowledgeLookupInput, runCtx): Promise<string> => {
+  execute: async (
+    input: KnowledgeLookupInput,
+    runCtx: { context?: TourAgentContext }
+  ): Promise<string> => {
     const limit = input.limit ?? 3;
     const context = runCtx?.context as TourAgentContext | undefined;
     const minimumScore =

@@ -1088,9 +1088,18 @@ export default function StorytellerPage() {
           <span>
             Storytelling is instant—feel free to improvise on the fly.
           </span>
-          <span>
-            Built for the AI Tour Guide prototype · {new Date().getFullYear()}
-          </span>
+          <div className="flex items-center gap-4">
+            <a 
+              href="/admin" 
+              className="text-emerald-400 hover:text-emerald-300 transition-colors"
+              title="View saved image analyses"
+            >
+              Admin Panel
+            </a>
+            <span>
+              Built for the AI Tour Guide prototype · {new Date().getFullYear()}
+            </span>
+          </div>
         </div>
       </footer>
     </div>

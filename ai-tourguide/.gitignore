@@ -42,3 +42,6 @@ next-env.d.ts
 
 # build files
 data/conversation-history.json
+
+# image analysis storage
+image-analyses/

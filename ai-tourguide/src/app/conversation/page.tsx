@@ -179,6 +179,7 @@ export default function ConversationPage() {
   const [voiceTranscript, setVoiceTranscript] = useState<string>("");
   const [isProcessingVoice, setIsProcessingVoice] = useState<boolean>(false);
 
+
   // Refs for voice functionality
   const recognitionRef = useRef<SpeechRecognitionInstance | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
@@ -395,6 +396,7 @@ export default function ConversationPage() {
     },
     [sendTranscript]
   );
+
 
   // Voice listening functions
   const processVoiceTranscript = useCallback(
@@ -824,6 +826,7 @@ export default function ConversationPage() {
                   )}
                 </div>
               </div>
+
 
               {sessionId ? (
                 <p className="text-xs text-slate-500">
