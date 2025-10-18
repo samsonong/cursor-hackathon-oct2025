@@ -55,6 +55,7 @@ export type AgentResponse = {
 const MAX_AGENT_TURNS = 15;
 const MAX_TOKEN_BUDGET = 4000;
 const MAX_REQUEST_COUNT = 4;
+const MIN_KNOWLEDGE_CONFIDENCE = 3;
 
 type AgentRunTrace = {
   knowledgeLookups: KnowledgeLookupTrace[];
@@ -244,9 +245,12 @@ function buildSystemPrompt(opts: {
     "You are a friendly local bringing your friend around your place, focused on Jewel Changi Airport.",
     placeContext,
     toolInstruction,
-    "If details are uncertain or vary (like schedules or prices), acknowledge the uncertainty briefly.",
-    "You are a friendly local bringing your friend around your place. You are a singaporean and sound like a young woman in her early 20s — cheerful, confident, and slightly dramatic, with natural Singlish rhythm and tone. She speaks fast and animatedly, with casual English and light Singlish inflection (like “lah”, “leh”, “pls”, “eh”). The overall mood: charismatic, witty, expressive — a young Singaporean girl who can go from “LOL that one so cringe” to “but honestly, it’s kinda true lah”, with good pause using fullstops and break into paragraphs. Structure every reply as: (1) quick overview about the place, (2) personalised highlight that links to the traveller's interests or needs, BUT do not repeat my input (3) One leading question ONLY that invites them to continue exploring. Stay respectful, accessible, and keep it under 50 words.",
-    `Write in ${lang} style when the user requests it.`,
+    "If details are uncertain or vary (like schedules or prices), acknowledge the uncertainty briefly and offer practical next steps.",
+  "When tools don't surface a direct fact, pause to infer the traveller's likely intent from surrounding context or related locations and share the closest relevant guidance while clearly flagging any assumptions.",
+    "Speak like a young Singaporean woman in her early 20s — cheerful, confident, and slightly dramatic, with natural Singlish rhythm and tone (light “lah”, “leh”, “pls”, “eh”).",
+    "Always answer the traveller's exact question in your first sentence using grounded facts from the tools or clearly state when something is unknown.",
+    "Keep replies to 2-3 sentences, stay respectful and accessible, and finish with a gentle follow-up suggestion only when it helps them keep exploring.",
+    `Adapt to ${lang} style when the user requests it.`,
   ].join(" ");
 }
 
@@ -652,13 +656,49 @@ export class TourGuideAgent {
   private shouldFallbackToWebSearch(
     query: string,
     response: AgentResponse,
-    _runTrace: AgentRunTrace
+    runTrace: AgentRunTrace
   ): boolean {
-    void _runTrace;
     const answer = response.answer?.trim();
     if (!answer) {
       return true;
     }
+    if (response.usedWebSearch) {
+      return false;
+    }
+
+    const knowledgeLookups = runTrace?.knowledgeLookups ?? [];
+    if (!knowledgeLookups.length) {
+      console.info("[TourGuideAgent] no knowledge lookups recorded", {
+        query,
+      });
+      return true;
+    }
+
+    const allMatches = knowledgeLookups.flatMap((lookup) => lookup.matches);
+    if (!allMatches.length) {
+      console.info("[TourGuideAgent] knowledge lookup returned no matches", {
+        query,
+      });
+      return true;
+    }
+
+    const topScore = allMatches.reduce(
+      (best, match) => (match.score > best ? match.score : best),
+      0
+    );
+
+    if (topScore < MIN_KNOWLEDGE_CONFIDENCE) {
+      console.info(
+        "[TourGuideAgent] knowledge matches below confidence threshold",
+        {
+          query,
+          topScore,
+          threshold: MIN_KNOWLEDGE_CONFIDENCE,
+        }
+      );
+      return true;
+    }
+
     return false;
 
     // if (response.usedWebSearch) {
