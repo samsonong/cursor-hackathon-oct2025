@@ -1,4 +1,4 @@
-const DEFAULT_WAKE_WORD =
+export const DEFAULT_WAKE_WORD =
   process.env.NEXT_PUBLIC_WAKE_WORD || process.env.WAKE_WORD || "hey wei jie";
 
 export type WakeWordDetectionResult = {
