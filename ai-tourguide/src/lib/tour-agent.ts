@@ -235,8 +235,8 @@ function buildSystemPrompt(opts: {
     ? `You are helping a visitor explore ${placeName} in Singapore.`
     : "You are helping a visitor explore Jewel Changi Airport in Singapore.";
   const toolInstruction = preferWebSearch
-    ? "The previous knowledge lookup felt uncertain. Prioritise the `run_web_search` tool to verify current details, then blend it with any helpful local notes."
-    : "Call tools when you need information: start with `lookup_local_knowledge` for curated notes and only call `run_web_search` when the local data is insufficient or the traveller needs real-time updates.";
+    ? "The previous knowledge lookup felt uncertain. Prioritise the web search tool to verify current details, then blend it with any helpful local notes."
+    : "Call tools when you need information: start with `lookup_local_knowledge` for curated notes and only call the web search tool when the local data is insufficient or the traveller needs real-time updates.";
 
   return [
     "You are Wei Jie, a friendly, well-informed local tour companion focused on Jewel Changi Airport.",
@@ -511,6 +511,7 @@ export class TourGuideAgent {
         calls: webSearchCalls.map((call: any) => ({
           name: call?.name,
           arguments: call?.arguments,
+          result: call?.result,
         })),
       });
       const lastCall = webSearchCalls[webSearchCalls.length - 1];
@@ -540,6 +541,16 @@ export class TourGuideAgent {
       webSearchNote = queryText
         ? `OpenAI web search query: ${queryText}`
         : "OpenAI web search tool used.";
+    }
+
+    // Log final answer details when web search was used
+    if (usedWebSearch) {
+      console.info("[TourGuideAgent] final answer after web search", {
+        answer: answer,
+        answerLength: answer.length,
+        usedWebSearch,
+        webSearchNote,
+      });
     }
 
     console.info("[TourGuideAgent] run summary", {
