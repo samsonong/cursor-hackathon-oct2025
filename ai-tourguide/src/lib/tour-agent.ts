@@ -560,45 +560,46 @@ export class TourGuideAgent {
     runTrace: AgentRunTrace
   ): boolean {
     if (runTrace.knowledgeLookups.length === 0) {
-      return false;
-    }
-
-    if (response.usedWebSearch) {
-      return false;
-    }
-
-    const hasMatches = runTrace.knowledgeLookups.some(
-      (lookup) => lookup.matches.length > 0
-    );
-    if (!hasMatches) {
       return true;
     }
+    return false;
 
-    const answer = response.answer?.trim();
-    if (!answer) {
-      return true;
-    }
+    // if (response.usedWebSearch) {
+    //   return false;
+    // }
 
-    if (answer.length < 24) {
-      return true;
-    }
+    // const hasMatches = runTrace.knowledgeLookups.some(
+    //   (lookup) => lookup.matches.length > 0
+    // );
+    // if (!hasMatches) {
+    //   return true;
+    // }
 
-    const answerLower = answer.toLowerCase();
+    // const answer = response.answer?.trim();
+    // if (!answer) {
+    //   return true;
+    // }
 
-    const keywords = this.extractKeywords(query);
-    const hasKeywordOverlap =
-      !keywords.length ||
-      keywords.some((keyword) => answerLower.includes(keyword));
+    // if (answer.length < 24) {
+    //   return true;
+    // }
 
-    const knowledgeTokens = runTrace.knowledgeLookups
-      .flatMap((lookup) => lookup.matches)
-      .flatMap((match) => this.extractKeywords(match.name));
+    // const answerLower = answer.toLowerCase();
 
-    const mentionsKnowledge =
-      !knowledgeTokens.length ||
-      knowledgeTokens.some((token) => answerLower.includes(token));
+    // const keywords = this.extractKeywords(query);
+    // const hasKeywordOverlap =
+    //   !keywords.length ||
+    //   keywords.some((keyword) => answerLower.includes(keyword));
 
-    return !(hasKeywordOverlap && mentionsKnowledge);
+    // const knowledgeTokens = runTrace.knowledgeLookups
+    //   .flatMap((lookup) => lookup.matches)
+    //   .flatMap((match) => this.extractKeywords(match.name));
+
+    // const mentionsKnowledge =
+    //   !knowledgeTokens.length ||
+    //   knowledgeTokens.some((token) => answerLower.includes(token));
+
+    // return !(hasKeywordOverlap && mentionsKnowledge);
   }
 
   private extractKeywords(text: string): string[] {
