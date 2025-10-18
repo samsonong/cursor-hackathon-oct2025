@@ -47,4 +47,22 @@ export const VOICE_CONFIG: Record<string, VoiceConfig> = {
       speed: 1.2,
     },
   },
+  "Jake": {
+    id: "BHyvQU4czkhWdOZH4Rdq",
+    settings: {
+      stability: 0.5,
+      similarityBoost: 0.75,
+      style: 0.0,
+      speed: 1.1,
+    },
+  },
+  "Lilian": {
+    id: "6qpxBH5KUSDb40bij36w",
+    settings: {
+      stability: 0.5,
+      similarityBoost: 0.75,
+      style: 0.0,
+      speed: 1.2,
+    },
+  },
 };
