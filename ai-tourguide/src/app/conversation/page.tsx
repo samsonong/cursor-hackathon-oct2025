@@ -1,11 +1,8 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useState, useRef, useEffect } from "react";
 
-import {
-  DEFAULT_WAKE_WORD,
-  detectAndStripWakeWord,
-} from "@/lib/wake-word";
+import { DEFAULT_WAKE_WORD, detectAndStripWakeWord } from "@/lib/wake-word";
 
 type ConversationMessage = {
   id: string;
@@ -29,6 +26,44 @@ type SessionMetaState = {
   usedWebSearch?: boolean;
   webSearchNote?: string | null;
 };
+
+type SpeechRecognitionConstructor = new () => SpeechRecognitionInstance;
+
+interface SpeechRecognitionInstance {
+  lang: string;
+  continuous: boolean;
+  interimResults: boolean;
+  start(): void;
+  stop(): void;
+  onresult: ((event: SpeechRecognitionEventLike) => void) | null;
+  onerror: ((event: SpeechRecognitionErrorEventLike) => void) | null;
+  onend: (() => void) | null;
+}
+
+interface SpeechRecognitionEventLike {
+  resultIndex: number;
+  results: SpeechRecognitionResultLike[];
+}
+
+interface SpeechRecognitionResultLike {
+  [index: number]: SpeechRecognitionAlternativeLike;
+  isFinal: boolean;
+}
+
+interface SpeechRecognitionAlternativeLike {
+  transcript: string;
+  confidence: number;
+}
+
+interface SpeechRecognitionErrorEventLike {
+  error: string;
+  message?: string;
+}
+
+interface SpeechRecognitionWindow extends Window {
+  SpeechRecognition?: SpeechRecognitionConstructor;
+  webkitSpeechRecognition?: SpeechRecognitionConstructor;
+}
 
 function formatTimestamp(ts: number) {
   try {
@@ -64,6 +99,23 @@ export default function ConversationPage() {
   }>({ ended: false, reason: null });
   const [sessionMeta, setSessionMeta] = useState<SessionMetaState | null>(null);
 
+  // Voice listening state
+  const [isVoiceListening, setIsVoiceListening] = useState<boolean>(false);
+  const [voiceError, setVoiceError] = useState<string | null>(null);
+  const [isVoiceActive, setIsVoiceActive] = useState<boolean>(false);
+  const [voiceTranscript, setVoiceTranscript] = useState<string>("");
+  const [isProcessingVoice, setIsProcessingVoice] = useState<boolean>(false);
+
+  // Refs for voice functionality
+  const recognitionRef = useRef<SpeechRecognitionInstance | null>(null);
+  const mediaStreamRef = useRef<MediaStream | null>(null);
+  const lastSpeechAtRef = useRef<number>(0);
+  const voiceTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const isVoiceActiveRef = useRef<boolean>(false);
+
+  // Voice listening timeout (3 seconds of silence)
+  const VOICE_SILENCE_TIMEOUT = 1500;
+
   const effectiveWakeWord = useMemo(
     () => (wakeWord.trim() ? wakeWord.trim() : DEFAULT_WAKE_WORD),
     [wakeWord]
@@ -98,15 +150,12 @@ export default function ConversationPage() {
     [effectiveWakeWord]
   );
 
-  const recomputeWakeWordState = useCallback(
-    (input: string, hint: string) => {
-      const detection = detectAndStripWakeWord(input, hint);
-      setWakeWordDetected(detection.matched);
-      setStrippedTranscript(detection.stripped);
-      return detection;
-    },
-    []
-  );
+  const recomputeWakeWordState = useCallback((input: string, hint: string) => {
+    const detection = detectAndStripWakeWord(input, hint);
+    setWakeWordDetected(detection.matched);
+    setStrippedTranscript(detection.stripped);
+    return detection;
+  }, []);
 
   const handleWakeWordChange = useCallback(
     (value: string) => {
@@ -159,11 +208,14 @@ export default function ConversationPage() {
         return;
       }
 
+      console.log("rawTranscript", rawTranscript);
       const detection = detectAndStripWakeWord(
         rawTranscript,
         effectiveWakeWord
       );
+      console.log("detection", detection);
       const firstTurn = !sessionId;
+      console.log("firstTurn", firstTurn);
 
       setWakeWordDetected(detection.matched);
       setStrippedTranscript(detection.stripped);
@@ -179,6 +231,7 @@ export default function ConversationPage() {
       setError(null);
 
       try {
+        console.log("sending to api");
         const response = await fetch("/api/conversation", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -268,6 +321,179 @@ export default function ConversationPage() {
     [sendTranscript]
   );
 
+  // Voice listening functions
+  const processVoiceTranscript = useCallback(
+    async (voiceText: string) => {
+      if (!voiceText.trim() || isProcessingVoice) {
+        return;
+      }
+
+      setIsProcessingVoice(true);
+      setVoiceTranscript("");
+      setIsVoiceActive(false);
+      isVoiceActiveRef.current = false;
+
+      // Clear any pending timeout
+      if (voiceTimeoutRef.current) {
+        clearTimeout(voiceTimeoutRef.current);
+        voiceTimeoutRef.current = null;
+      }
+
+      try {
+        await sendTranscript(voiceText);
+      } catch (err) {
+        setError(
+          err instanceof Error ? err.message : "Failed to process voice input"
+        );
+      } finally {
+        setIsProcessingVoice(false);
+      }
+    },
+    [sendTranscript, isProcessingVoice]
+  );
+
+  const startVoiceListening = useCallback(async () => {
+    if (typeof window === "undefined") {
+      setVoiceError("Voice listening not supported in this environment");
+      return;
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      mediaStreamRef.current = stream;
+
+      const speechWindow = window as SpeechRecognitionWindow;
+      const SpeechRecognitionCtor =
+        speechWindow.SpeechRecognition ?? speechWindow.webkitSpeechRecognition;
+
+      if (!SpeechRecognitionCtor) {
+        setVoiceError(
+          "Speech recognition not supported in this browser. Try Chrome on desktop."
+        );
+        return;
+      }
+
+      const recognition = new SpeechRecognitionCtor();
+      recognition.lang = "en-SG";
+      recognition.continuous = true;
+      recognition.interimResults = true;
+
+      recognition.onresult = (event: SpeechRecognitionEventLike) => {
+        const transcripts: string[] = [];
+
+        for (let i = event.resultIndex; i < event.results.length; i += 1) {
+          const result = event.results[i];
+          const transcript = result?.[0]?.transcript ?? "";
+          if (transcript) {
+            transcripts.push(transcript);
+          }
+        }
+
+        if (!transcripts.length) {
+          return;
+        }
+
+        const combined = transcripts.join(" ").toLowerCase();
+        const detection = detectAndStripWakeWord(combined, effectiveWakeWord);
+        const now = Date.now();
+
+        // Update voice transcript for display
+        setVoiceTranscript(combined);
+
+        // Check for wake word detection
+        if (detection.matched && !isVoiceActiveRef.current) {
+          isVoiceActiveRef.current = true;
+          setIsVoiceActive(true);
+          setVoiceTranscript(detection.stripped || combined);
+        }
+
+        // Track speech activity
+        if (detection.matched || isVoiceActiveRef.current) {
+          lastSpeechAtRef.current = now;
+
+          // Clear existing timeout
+          if (voiceTimeoutRef.current) {
+            clearTimeout(voiceTimeoutRef.current);
+          }
+
+          // Set new timeout for silence detection
+          voiceTimeoutRef.current = setTimeout(() => {
+            if (isVoiceActiveRef.current && voiceTranscript.trim()) {
+              void processVoiceTranscript(voiceTranscript);
+            }
+          }, VOICE_SILENCE_TIMEOUT);
+        }
+      };
+
+      recognition.onerror = (event: SpeechRecognitionErrorEventLike) => {
+        setVoiceError(
+          typeof event?.error === "string"
+            ? `Speech recognition error: ${event.error}`
+            : "Microphone listening error occurred."
+        );
+        setIsVoiceListening(false);
+        isVoiceActiveRef.current = false;
+        setIsVoiceActive(false);
+      };
+
+      recognition.onend = () => {
+        if (isVoiceListening) {
+          try {
+            recognition.start();
+          } catch (restartError) {
+            console.warn("Unable to restart speech recognition", restartError);
+            setVoiceError("Speech recognition stopped unexpectedly");
+            setIsVoiceListening(false);
+          }
+        }
+      };
+
+      recognitionRef.current = recognition;
+      recognition.start();
+      setIsVoiceListening(true);
+      setVoiceError(null);
+    } catch (err) {
+      setVoiceError(
+        err instanceof Error ? err.message : "Failed to start voice listening"
+      );
+    }
+  }, [
+    effectiveWakeWord,
+    voiceTranscript,
+    processVoiceTranscript,
+    isVoiceListening,
+  ]);
+
+  const stopVoiceListening = useCallback(() => {
+    if (recognitionRef.current) {
+      recognitionRef.current.stop();
+      recognitionRef.current = null;
+    }
+
+    if (mediaStreamRef.current) {
+      mediaStreamRef.current.getTracks().forEach((track) => track.stop());
+      mediaStreamRef.current = null;
+    }
+
+    if (voiceTimeoutRef.current) {
+      clearTimeout(voiceTimeoutRef.current);
+      voiceTimeoutRef.current = null;
+    }
+
+    setIsVoiceListening(false);
+    setIsVoiceActive(false);
+    isVoiceActiveRef.current = false;
+    setVoiceTranscript("");
+    setVoiceError(null);
+  }, []);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      stopVoiceListening();
+    };
+  }, [stopVoiceListening]);
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
       <header className="border-b border-slate-800/60 bg-slate-950/80 backdrop-blur">
@@ -352,9 +578,7 @@ export default function ConversationPage() {
                 </p>
               </div>
 
-              {error ? (
-                <p className="text-xs text-rose-300">{error}</p>
-              ) : null}
+              {error ? <p className="text-xs text-rose-300">{error}</p> : null}
 
               <div className="rounded-xl border border-slate-800/60 bg-slate-950/50 p-4">
                 <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
@@ -394,6 +618,109 @@ export default function ConversationPage() {
                 >
                   Reset session
                 </button>
+              </div>
+
+              {/* Voice Listening Controls */}
+              <div className="rounded-xl border border-slate-800/60 bg-slate-950/50 p-4">
+                <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Voice Listening
+                </h3>
+                <p className="mt-1 text-xs text-slate-500">
+                  Start voice listening to automatically detect wake words and
+                  send messages after silence.
+                </p>
+
+                <div className="mt-4 flex flex-col gap-3">
+                  <div className="flex items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={
+                        isVoiceListening
+                          ? stopVoiceListening
+                          : startVoiceListening
+                      }
+                      disabled={isProcessingVoice}
+                      className={`inline-flex items-center justify-center rounded-lg px-4 py-2 text-sm font-semibold transition focus:outline-none focus:ring-2 ${
+                        isVoiceListening
+                          ? "bg-red-500 text-red-950 hover:bg-red-400 focus:ring-red-500/50"
+                          : "bg-blue-500 text-blue-950 hover:bg-blue-400 focus:ring-blue-500/50"
+                      } disabled:cursor-not-allowed disabled:opacity-50`}
+                    >
+                      {isProcessingVoice ? (
+                        <>
+                          <div className="mr-2 h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                          Processing...
+                        </>
+                      ) : isVoiceListening ? (
+                        <>
+                          <svg
+                            className="mr-2 h-4 w-4"
+                            fill="currentColor"
+                            viewBox="0 0 20 20"
+                          >
+                            <path
+                              fillRule="evenodd"
+                              d="M10 18a8 8 0 100-16 8 8 0 000 16zM8 7a1 1 0 00-1 1v4a1 1 0 102 0V8a1 1 0 00-1-1zm4 0a1 1 0 00-1 1v4a1 1 0 102 0V8a1 1 0 00-1-1z"
+                              clipRule="evenodd"
+                            />
+                          </svg>
+                          Stop Listening
+                        </>
+                      ) : (
+                        <>
+                          <svg
+                            className="mr-2 h-4 w-4"
+                            fill="currentColor"
+                            viewBox="0 0 20 20"
+                          >
+                            <path
+                              fillRule="evenodd"
+                              d="M7 4a3 3 0 016 0v4a3 3 0 11-6 0V4zm4 10.93A7.001 7.001 0 0017 8a1 1 0 10-2 0A5 5 0 015 8a1 1 0 00-2 0 7.001 7.001 0 006 6.93V17H6a1 1 0 100 2h8a1 1 0 100-2h-3v-2.07z"
+                              clipRule="evenodd"
+                            />
+                          </svg>
+                          Start Listening
+                        </>
+                      )}
+                    </button>
+
+                    <div className="flex items-center gap-2">
+                      <div
+                        className={`h-3 w-3 rounded-full ${
+                          isVoiceListening
+                            ? isVoiceActive
+                              ? "bg-green-400 animate-pulse"
+                              : "bg-yellow-400"
+                            : "bg-slate-600"
+                        }`}
+                      />
+                      <span className="text-xs text-slate-400">
+                        {isVoiceListening
+                          ? isVoiceActive
+                            ? "Active - Listening for your message"
+                            : "Waiting for wake word"
+                          : "Not listening"}
+                      </span>
+                    </div>
+                  </div>
+
+                  {voiceTranscript && (
+                    <div className="rounded-lg border border-slate-800/70 bg-slate-900/60 p-3">
+                      <p className="text-xs text-slate-500">
+                        Voice transcript:
+                      </p>
+                      <p className="mt-1 text-sm text-slate-200">
+                        {voiceTranscript}
+                      </p>
+                    </div>
+                  )}
+
+                  {voiceError && (
+                    <div className="rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-2 text-xs text-red-200">
+                      {voiceError}
+                    </div>
+                  )}
+                </div>
               </div>
 
               {sessionId ? (
@@ -536,8 +863,14 @@ export default function ConversationPage() {
           </h2>
           <ol className="mt-3 list-decimal space-y-2 pl-5 text-slate-400">
             <li>
-              Start your first message with the wake word (default: “
-              {DEFAULT_WAKE_WORD}”).
+              <strong>Voice Mode:</strong> Click "Start Listening" to enable
+              continuous voice recognition. Say the wake word (default: "
+              {DEFAULT_WAKE_WORD}") followed by your question. The system will
+              automatically send your message after 3 seconds of silence.
+            </li>
+            <li>
+              <strong>Text Mode:</strong> Type your message in the transcript
+              field, starting with the wake word for the first message.
             </li>
             <li>
               Adjust the wake word if you want to test a different activation
@@ -547,9 +880,7 @@ export default function ConversationPage() {
               Subsequent turns may omit the wake word while the session is
               active.
             </li>
-            <li>
-              Use reset to clear the in-browser session and begin again.
-            </li>
+            <li>Use reset to clear the in-browser session and begin again.</li>
           </ol>
         </section>
       </main>

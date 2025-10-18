@@ -13,6 +13,7 @@ export const runtime = "nodejs";
 
 export async function POST(req: Request) {
   try {
+    console.log("api conversation is triggered");
     const body = await req.json().catch(() => ({}));
     const rawText = body?.text;
     const text =
