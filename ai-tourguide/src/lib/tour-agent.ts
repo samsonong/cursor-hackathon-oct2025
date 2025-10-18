@@ -8,6 +8,7 @@
  *   const answer = await agent.respond({ query: "What should I see at the Rain Vortex tonight?" });
  *   console.log(answer.answer);
  */
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import {
   Agent,
   InputGuardrailTripwireTriggered,
@@ -253,7 +254,7 @@ export class TourGuideAgent {
     this.agent = new Agent<TourAgentContext>({
       name: "Wei Jie Tour Companion",
       model: this.model,
-      instructions: (runCtx) =>
+      instructions: (runCtx: { context?: TourAgentContext }) =>
         buildSystemPrompt({
           placeName: runCtx.context?.placeName,
           lang: runCtx.context?.lang,

@@ -1,4 +1,5 @@
-export const DEFAULT_WAKE_WORD = process.env.WAKE_WORD || "hey wei jie";
+const DEFAULT_WAKE_WORD =
+  process.env.NEXT_PUBLIC_WAKE_WORD || process.env.WAKE_WORD || "hey wei jie";
 
 export type WakeWordDetectionResult = {
   matched: boolean;
@@ -7,10 +8,15 @@ export type WakeWordDetectionResult = {
 };
 
 function buildWakeWordPattern(wakeWord: string) {
-  return new RegExp(
-    "^\\s*" + wakeWord.trim().split(/\s+/).join("\\s*") + "[\\s,.:;-]*",
-    "i"
-  );
+  const trimmed = wakeWord.trim();
+  if (!trimmed) {
+    return /^$/i;
+  }
+
+  const escaped = trimmed.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const segmentPattern = escaped.split(/\\s+/).join("\\s*");
+
+  return new RegExp(`(^|\\b)${segmentPattern}(?:\\b|[\\s,.:;!?-])`, "i");
 }
 
 export function detectAndStripWakeWord(
@@ -29,9 +35,10 @@ export function detectAndStripWakeWord(
   };
 }
 
-export function hasWakeWordPrefix(
-  text: string,
-  wakeWord = DEFAULT_WAKE_WORD
-) {
+export function hasWakeWordPrefix(text: string, wakeWord = DEFAULT_WAKE_WORD) {
   return detectAndStripWakeWord(text, wakeWord).matched;
+}
+
+export function getWakeWord(): string {
+  return DEFAULT_WAKE_WORD;
 }

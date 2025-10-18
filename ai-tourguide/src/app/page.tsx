@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { narratePointOfInterestAction } from "@/app/actions/narrate-point-of-interest";
 import { narrateWithElevenLabsAction } from "@/app/actions/narrate-with-elevenlabs";
@@ -16,6 +16,8 @@ import {
   narrateToUser,
   prepareUserPreferences,
 } from "@/lib/storytelling";
+import { detectAndStripWakeWord, getWakeWord } from "@/lib/wake-word";
+import { VOICE_CONFIG } from "@/services/voice/data";
 
 type NarrationEntry = {
   poiId: string;
@@ -25,6 +27,48 @@ type NarrationEntry = {
 };
 
 const poiCatalog: PlaceOfInterest[] = [changiJewelMain, changiJewelRainVortex];
+const WAKE_WORD_RESET_MS = 4_000;
+
+type SpeechRecognitionConstructor = new () => SpeechRecognitionInstance;
+
+interface SpeechRecognitionInstance {
+  lang: string;
+  continuous: boolean;
+  interimResults: boolean;
+  start(): void;
+  stop(): void;
+  onresult: ((event: SpeechRecognitionEventLike) => void) | null;
+  onerror: ((event: SpeechRecognitionErrorEventLike) => void) | null;
+  onend: (() => void) | null;
+}
+
+interface SpeechRecognitionEventLike {
+  resultIndex: number;
+  results: SpeechRecognitionResultListLike;
+}
+
+interface SpeechRecognitionResultListLike {
+  length: number;
+  [index: number]: SpeechRecognitionResultLike | undefined;
+}
+
+interface SpeechRecognitionResultLike {
+  length: number;
+  [index: number]: SpeechRecognitionAlternativeLike | undefined;
+}
+
+interface SpeechRecognitionAlternativeLike {
+  transcript: string;
+}
+
+interface SpeechRecognitionErrorEventLike {
+  error?: string;
+}
+
+interface SpeechRecognitionWindow extends Window {
+  SpeechRecognition?: SpeechRecognitionConstructor;
+  webkitSpeechRecognition?: SpeechRecognitionConstructor;
+}
 const preparedPreferences = prepareUserPreferences(userPreferences);
 
 function toTitleCase(value: string): string {
@@ -81,10 +125,19 @@ export default function StorytellerPage() {
   const [selectedPoiId, setSelectedPoiId] = useState<string>(
     poiCatalog[0]?.id ?? ""
   );
+  const [selectedVoiceId, setSelectedVoiceId] = useState<string>(
+    Object.values(VOICE_CONFIG)[0]?.id ?? ""
+  );
   const [latestStory, setLatestStory] = useState<string>("");
   const [isNarrating, setIsNarrating] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [narrationLog, setNarrationLog] = useState<NarrationEntry[]>([]);
+  const [wakeWordDetectedAt, setWakeWordDetectedAt] = useState<number | null>(
+    null
+  );
+  const [wakeWordPhrase, setWakeWordPhrase] = useState<string>("");
+  const [isMicListening, setIsMicListening] = useState<boolean>(false);
+  const [micError, setMicError] = useState<string | null>(null);
   const knowledge = changiJewelKnowledgeBase;
   const overviewBullets = knowledge.overview.bullets?.slice(0, 3) ?? [];
   const quickFactCards = knowledge.quickFacts.slice(0, 6);
@@ -120,6 +173,148 @@ export default function StorytellerPage() {
   const selectedPoi = useMemo(() => {
     return poiCatalog.find((poi) => poi.id === selectedPoiId) ?? null;
   }, [selectedPoiId]);
+
+  const recognitionRef = useRef<SpeechRecognitionInstance | null>(null);
+  const mediaStreamRef = useRef<MediaStream | null>(null);
+  const activeWakeWord = useMemo(() => getWakeWord(), []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    let cancelled = false;
+
+    const initialise = async () => {
+      const speechWindow = window as SpeechRecognitionWindow;
+      const SpeechRecognitionCtor =
+        speechWindow.SpeechRecognition ?? speechWindow.webkitSpeechRecognition;
+
+      if (!SpeechRecognitionCtor) {
+        setMicError(
+          "Wake word listening isn't supported in this browser. Try Chrome on desktop."
+        );
+        return;
+      }
+
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: true,
+        });
+
+        if (cancelled) {
+          stream.getTracks().forEach((track) => track.stop());
+          return;
+        }
+
+        mediaStreamRef.current = stream;
+
+        const recognition = new SpeechRecognitionCtor();
+        recognition.lang = "en-SG";
+        recognition.continuous = true;
+        recognition.interimResults = true;
+
+        recognition.onresult = (event: SpeechRecognitionEventLike) => {
+          const transcripts: string[] = [];
+
+          for (let i = event.resultIndex; i < event.results.length; i += 1) {
+            const result = event.results[i];
+            const transcript = result?.[0]?.transcript ?? "";
+            if (transcript) {
+              transcripts.push(transcript);
+            }
+          }
+
+          if (!transcripts.length) {
+            return;
+          }
+
+          const combined = transcripts.join(" ").toLowerCase();
+          const detection = detectAndStripWakeWord(combined, activeWakeWord);
+
+          if (detection.matched) {
+            setWakeWordPhrase(detection.wakeWord);
+            setWakeWordDetectedAt(Date.now());
+          }
+        };
+
+        recognition.onerror = (event: SpeechRecognitionErrorEventLike) => {
+          if (!cancelled) {
+            setMicError(
+              typeof event?.error === "string"
+                ? `Speech recognition error: ${event.error}`
+                : "Microphone listening error occurred."
+            );
+            setIsMicListening(false);
+          }
+        };
+
+        recognition.onend = () => {
+          if (!cancelled) {
+            try {
+              recognition.start();
+            } catch (restartError) {
+              console.warn(
+                "Unable to restart speech recognition",
+                restartError
+              );
+            }
+          }
+        };
+
+        recognitionRef.current = recognition;
+        recognition.start();
+        setIsMicListening(true);
+      } catch (requestError) {
+        if (!cancelled) {
+          setMicError(
+            requestError instanceof Error
+              ? requestError.message
+              : "Unable to access microphone."
+          );
+          setIsMicListening(false);
+        }
+      }
+    };
+
+    initialise();
+
+    return () => {
+      cancelled = true;
+      setIsMicListening(false);
+      if (recognitionRef.current) {
+        try {
+          recognitionRef.current.onresult = null;
+          recognitionRef.current.onerror = null;
+          recognitionRef.current.onend = null;
+          recognitionRef.current.stop();
+        } catch (stopError) {
+          console.warn("Error stopping speech recognition", stopError);
+        }
+      }
+      recognitionRef.current = null;
+
+      if (mediaStreamRef.current) {
+        mediaStreamRef.current.getTracks().forEach((track) => track.stop());
+      }
+      mediaStreamRef.current = null;
+    };
+  }, [activeWakeWord]);
+
+  useEffect(() => {
+    if (!wakeWordDetectedAt) {
+      return;
+    }
+
+    const timeout = window.setTimeout(() => {
+      setWakeWordDetectedAt(null);
+      setWakeWordPhrase("");
+    }, WAKE_WORD_RESET_MS);
+
+    return () => {
+      window.clearTimeout(timeout);
+    };
+  }, [wakeWordDetectedAt]);
 
   const recordNarration = (story: string, poi: PlaceOfInterest) => {
     setLatestStory(story);
@@ -158,6 +353,7 @@ export default function StorytellerPage() {
       try {
         const audioDataUrl = await narrateWithElevenLabsAction({
           text: story,
+          voiceId: selectedVoiceId,
         });
 
         await playAudioFromDataUrl(audioDataUrl);
@@ -191,6 +387,7 @@ export default function StorytellerPage() {
       try {
         const fallbackAudioDataUrl = await narrateWithElevenLabsAction({
           text: fallbackStory,
+          voiceId: selectedVoiceId,
         });
 
         await playAudioFromDataUrl(fallbackAudioDataUrl);
@@ -240,7 +437,89 @@ export default function StorytellerPage() {
                 </p>
               </div>
 
-              <div className="flex flex-col gap-2">
+              <div className="flex flex-col gap-3">
+                <div className="rounded-lg border border-slate-800/80 bg-slate-950/70 px-3 py-2 text-xs text-slate-300">
+                  <p className="flex flex-wrap items-center justify-between gap-2 text-slate-200">
+                    <span className="font-semibold">Wake word listener</span>
+                    <span className="flex items-center gap-2">
+                      <span
+                        className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold ${
+                          micError
+                            ? "bg-rose-500/20 text-rose-200"
+                            : isMicListening
+                            ? "bg-emerald-500/10 text-emerald-200"
+                            : "bg-slate-800 text-slate-400"
+                        }`}
+                        aria-live="polite"
+                      >
+                        <span
+                          className={`h-1.5 w-1.5 rounded-full ${
+                            micError
+                              ? "bg-rose-300"
+                              : isMicListening
+                              ? "bg-emerald-400 animate-pulse"
+                              : "bg-slate-500"
+                          }`}
+                        />
+                        {micError
+                          ? "Error"
+                          : isMicListening
+                          ? "Listening"
+                          : "Idle"}
+                      </span>
+                      <span className="text-[11px] text-slate-400">
+                        Wake word:
+                        <span className="ml-1 text-slate-200">
+                          “{activeWakeWord}”
+                        </span>
+                      </span>
+                    </span>
+                  </p>
+                  {micError ? (
+                    <p className="mt-1 text-rose-300">{micError}</p>
+                  ) : (
+                    <p className="mt-1 text-slate-400">
+                      {isMicListening ? (
+                        <>
+                          Microphone open. Say
+                          <span className="mx-1 rounded-sm bg-slate-800 px-1.5 py-0.5 font-medium text-slate-200">
+                            “{activeWakeWord}”
+                          </span>
+                          to jump straight into narration.
+                        </>
+                      ) : (
+                        "Setting up microphone access."
+                      )}
+                    </p>
+                  )}
+                  {wakeWordDetectedAt ? (
+                    <div className="mt-2 rounded-md border border-emerald-500/60 bg-emerald-500/10 px-3 py-2 text-emerald-200">
+                      Wake word “
+                      {wakeWordPhrase || activeWakeWord || "Detected"}” just
+                      fired at{" "}
+                      {new Date(wakeWordDetectedAt).toLocaleTimeString()}.
+                    </div>
+                  ) : null}
+                </div>
+
+                <label className="text-xs font-medium uppercase tracking-wide text-slate-500">
+                  Voice model
+                  <select
+                    className="mt-1 w-full rounded-lg border border-slate-800 bg-slate-950/80 px-3 py-2 text-sm text-slate-100 focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/30"
+                    value={selectedVoiceId}
+                    onChange={(event) =>
+                      setSelectedVoiceId(event.target.value)
+                    }
+                    aria-label="Voice model"
+                  >
+                    {Object.entries(VOICE_CONFIG).map(([name, config]) => (
+                      <option key={config.id} value={config.id}>
+                        {name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
                 <span className="text-xs font-medium uppercase tracking-wide text-slate-500">
                   Quick narrations
                 </span>

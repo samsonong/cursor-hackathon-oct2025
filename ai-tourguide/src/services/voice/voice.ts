@@ -4,8 +4,9 @@ import { VOICE_CONFIG } from "./data";
 
 const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY;
 // This is a default voice ID. You can replace it with your own.
-const DEFAULT_VOICE_ID = VOICE_CONFIG["The OG Founder Utama"];
-const DEFAULT_MODEL_ID = process.env.ELEVENLABS_MODEL_ID ?? "eleven_turbo_v2";
+const DEFAULT_VOICE_ID = VOICE_CONFIG["Cheryl Tan"].id;
+const DEFAULT_MODEL_ID =
+  process.env.ELEVENLABS_MODEL_ID ?? "eleven_multilingual_v2";
 
 if (!ELEVENLABS_API_KEY) {
   console.warn(
@@ -22,6 +23,7 @@ type ElevenLabsNarrationRequest = {
   similarityBoost?: number;
   style?: number;
   useSpeakerBoost?: boolean;
+  speed?: number;
 };
 
 /**
@@ -33,10 +35,11 @@ export async function narrateWithElevenLabs({
   voiceId = DEFAULT_VOICE_ID,
   modelId = DEFAULT_MODEL_ID,
   optimizeLatency = 4,
-  stability = 0.5,
-  similarityBoost = 0.75,
-  style = 0.0,
+  stability,
+  similarityBoost,
+  style,
   useSpeakerBoost = true,
+  speed,
 }: ElevenLabsNarrationRequest): Promise<Buffer> {
   if (!ELEVENLABS_API_KEY) {
     // In a real app, you might want to return a pre-recorded message
@@ -45,6 +48,19 @@ export async function narrateWithElevenLabs({
       "Missing ELEVENLABS_API_KEY. Cannot generate audio with ElevenLabs."
     );
   }
+
+  const voiceConfig = Object.values(VOICE_CONFIG).find(
+    (v) => v.id === voiceId
+  );
+
+  const voiceSettings = {
+    stability: stability ?? voiceConfig?.settings.stability ?? 0.5,
+    similarity_boost:
+      similarityBoost ?? voiceConfig?.settings.similarityBoost ?? 0.75,
+    style: style ?? voiceConfig?.settings.style ?? 0.0,
+    use_speaker_boost: useSpeakerBoost,
+    speed: speed ?? voiceConfig?.settings.speed ?? 0.9,
+  };
 
   try {
     const response = await fetch(
@@ -59,12 +75,7 @@ export async function narrateWithElevenLabs({
           text,
           model_id: modelId,
           optimize_streaming_latency: optimizeLatency,
-          voice_settings: {
-            stability: stability,
-            similarity_boost: similarityBoost,
-            style: style,
-            use_speaker_boost: useSpeakerBoost,
-          },
+          voice_settings: voiceSettings,
         }),
       }
     );
