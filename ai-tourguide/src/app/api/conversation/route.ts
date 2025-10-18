@@ -6,7 +6,6 @@ import {
   iso,
   isExpired,
   now,
-  type Msg,
 } from "@/lib/conversation";
 import { detectAndStripWakeWord } from "@/lib/wake-word";
 import { TourGuideAgent } from "@/lib/tour-agent";
@@ -121,9 +120,16 @@ export async function POST(req: Request) {
       },
     };
     return Response.json(payload);
-  } catch (err: any) {
+  } catch (err: unknown) {
     return Response.json(
-      { error: err?.message ?? "Unexpected error" },
+      {
+        error:
+          err && typeof err === "object" && "message" in err
+            ? String(
+                (err as { message?: unknown }).message ?? "Unexpected error"
+              )
+            : "Unexpected error",
+      },
       { status: 500 }
     );
   }
