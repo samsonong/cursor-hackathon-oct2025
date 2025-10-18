@@ -5,6 +5,11 @@ export type ConversationRecord = {
   user: string;
   assistant: string;
   timestamp: string;
+  sessionId: string;
+};
+
+export type SessionConversationHistory = {
+  [sessionId: string]: ConversationRecord[];
 };
 
 const DEFAULT_HISTORY_PATH = resolve(
@@ -34,8 +39,19 @@ export class ConversationHistoryStore {
     this.maxEntries = envLimit;
   }
 
-  async loadHistory(limit = 10): Promise<ConversationRecord[]> {
-    const records = await this.readAll();
+  async loadHistory(
+    sessionId: string,
+    limit = 10
+  ): Promise<ConversationRecord[]> {
+    return this.loadSessionHistory(sessionId, limit);
+  }
+
+  async loadSessionHistory(
+    sessionId: string,
+    limit = 10
+  ): Promise<ConversationRecord[]> {
+    const sessionHistory = await this.readSessionHistory();
+    const records = sessionHistory[sessionId] || [];
     if (!records.length) {
       return [];
     }
@@ -44,32 +60,52 @@ export class ConversationHistoryStore {
   }
 
   async append(record: ConversationRecord): Promise<void> {
-    const records = await this.readAll();
-    records.push(record);
-    if (records.length > this.maxEntries) {
-      records.splice(0, records.length - this.maxEntries);
-    }
-    await this.writeAll(records);
+    await this.appendToSession(record);
   }
 
-  private async readAll(): Promise<ConversationRecord[]> {
+  private async appendToSession(record: ConversationRecord): Promise<void> {
+    const sessionHistory = await this.readSessionHistory();
+    const sessionId = record.sessionId;
+
+    if (!sessionHistory[sessionId]) {
+      sessionHistory[sessionId] = [];
+    }
+
+    sessionHistory[sessionId].push(record);
+
+    // Trim to max entries per session
+    if (sessionHistory[sessionId].length > this.maxEntries) {
+      sessionHistory[sessionId].splice(
+        0,
+        sessionHistory[sessionId].length - this.maxEntries
+      );
+    }
+
+    await this.writeSessionHistory(sessionHistory);
+  }
+
+  private async readSessionHistory(): Promise<SessionConversationHistory> {
     try {
       const raw = await fs.readFile(this.filePath, "utf-8");
       const parsed = JSON.parse(raw);
-      return Array.isArray(parsed) ? (parsed as ConversationRecord[]) : [];
+      return parsed as SessionConversationHistory;
     } catch (error: unknown) {
       if ((error as NodeJS.ErrnoException)?.code === "ENOENT") {
-        return [];
+        return {};
       }
-      console.warn("[ConversationHistory] read failed", { error });
-      return [];
+      console.warn("[ConversationHistory] read session history failed", {
+        error,
+      });
+      return {};
     }
   }
 
-  private async writeAll(records: ConversationRecord[]): Promise<void> {
+  private async writeSessionHistory(
+    sessionHistory: SessionConversationHistory
+  ): Promise<void> {
     const directory = dirname(this.filePath);
     await fs.mkdir(directory, { recursive: true });
-    const payload = JSON.stringify(records, null, 2);
+    const payload = JSON.stringify(sessionHistory, null, 2);
     await fs.writeFile(this.filePath, payload, "utf-8");
   }
 }

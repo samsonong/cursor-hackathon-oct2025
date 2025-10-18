@@ -88,6 +88,7 @@ export async function POST(req: Request) {
     }
 
     const session = getSession(providedSessionId);
+    console.log("session", session);
 
     if (isExpired(session)) {
       const payload = {
@@ -127,11 +128,13 @@ export async function POST(req: Request) {
         typeof lat === "number" && typeof lng === "number"
           ? { lat, lng }
           : undefined,
+      sessionId: session.id, // Pass the session ID to the tour agent
     });
     console.log("agentResult", agentResult);
     const reply = await rewriteReplyToFriendlyTone(agentResult.answer, lang);
 
     const history = session.messages;
+
     console.log("history", history);
     session.messages = [
       ...history,
@@ -155,7 +158,6 @@ export async function POST(req: Request) {
         knowledgeReferences: agentResult.knowledgeReferences,
         usedWebSearch: agentResult.usedWebSearch,
         webSearchNote: agentResult.webSearchNote,
-        reply: reply,
       },
     };
     console.log("payload", payload);
