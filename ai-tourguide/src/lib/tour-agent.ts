@@ -49,7 +49,7 @@ export type AgentResponse = {
   webSearchNote?: string;
 };
 
-const MAX_AGENT_TURNS = 20;
+const MAX_AGENT_TURNS = 15;
 const MAX_TOKEN_BUDGET = 4000;
 const MAX_REQUEST_COUNT = 4;
 
@@ -177,6 +177,8 @@ const INPUT_LENGTH_GUARDRAIL: InputGuardrail = {
               return JSON.stringify(item);
             })
             .join(" ");
+
+    console.log("raw", raw);
 
     const length = raw.length;
     const triggered = length > MAX_QUERY_LENGTH;
