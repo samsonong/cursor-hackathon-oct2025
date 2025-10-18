@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { narratePointOfInterestAction } from "@/app/actions/narrate-point-of-interest";
 import { narrateWithElevenLabsAction } from "@/app/actions/narrate-with-elevenlabs";
+import { answerUserQuestion } from "@/app/conversation/page";
 import { userPreferences } from "@/data/user-preferences";
 import {
   changiJewelKnowledgeBase,
@@ -16,7 +17,11 @@ import {
   narrateToUser,
   prepareUserPreferences,
 } from "@/lib/storytelling";
-import { detectAndStripWakeWord, getWakeWord } from "@/lib/wake-word";
+import {
+  type WakeWordDetectionResult,
+  detectAndStripWakeWord,
+  getWakeWord,
+} from "@/lib/wake-word";
 import { VOICE_CONFIG } from "@/services/voice/data";
 
 type NarrationEntry = {
@@ -55,6 +60,7 @@ interface SpeechRecognitionResultListLike {
 interface SpeechRecognitionResultLike {
   length: number;
   [index: number]: SpeechRecognitionAlternativeLike | undefined;
+  isFinal?: boolean;
 }
 
 interface SpeechRecognitionAlternativeLike {
@@ -138,6 +144,9 @@ export default function StorytellerPage() {
   const [wakeWordPhrase, setWakeWordPhrase] = useState<string>("");
   const [isMicListening, setIsMicListening] = useState<boolean>(false);
   const [micError, setMicError] = useState<string | null>(null);
+  const [conversationSessionId, setConversationSessionId] = useState<
+    string | null
+  >(null);
   const knowledge = changiJewelKnowledgeBase;
   const overviewBullets = knowledge.overview.bullets?.slice(0, 3) ?? [];
   const quickFactCards = knowledge.quickFacts.slice(0, 6);
@@ -176,7 +185,269 @@ export default function StorytellerPage() {
 
   const recognitionRef = useRef<SpeechRecognitionInstance | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
+  const wakeWordPausedRef = useRef<boolean>(false);
+  const isHandlingWakeWordRef = useRef<boolean>(false);
+  const conversationSessionIdRef = useRef<string | null>(null);
   const activeWakeWord = useMemo(() => getWakeWord(), []);
+
+  const listenToUser = useCallback(
+    async (initialTranscript: string): Promise<string | null> => {
+      if (typeof window === "undefined") {
+        const fallback = initialTranscript.trim();
+        return fallback.length ? fallback : null;
+      }
+
+      const speechWindow = window as SpeechRecognitionWindow;
+      const SpeechRecognitionCtor =
+        speechWindow.SpeechRecognition ?? speechWindow.webkitSpeechRecognition;
+
+      if (!SpeechRecognitionCtor) {
+        setMicError(
+          "Speech recognition isn't supported in this browser. Try Chrome on desktop."
+        );
+        const fallback = initialTranscript.trim();
+        return fallback.length ? fallback : null;
+      }
+
+      const SILENCE_TIMEOUT_MS = 1_500;
+      const MAX_LISTEN_MS = 10_000;
+
+      return new Promise<string | null>((resolve) => {
+        const recognition = new SpeechRecognitionCtor();
+        recognition.lang = "en-SG";
+        recognition.continuous = true;
+        recognition.interimResults = true;
+
+        const finalSegments: string[] = [];
+        const seed = initialTranscript.trim();
+        if (seed) {
+          finalSegments.push(seed);
+        }
+        let interimSegment = "";
+        let silenceTimer: number | null = null;
+        let maxTimer: number | null = null;
+        let resolved = false;
+
+        const cleanup = () => {
+          if (silenceTimer !== null) {
+            window.clearTimeout(silenceTimer);
+            silenceTimer = null;
+          }
+          if (maxTimer !== null) {
+            window.clearTimeout(maxTimer);
+            maxTimer = null;
+          }
+          recognition.onresult = null;
+          recognition.onerror = null;
+          recognition.onend = null;
+        };
+
+        const normaliseText = () => {
+          const segments = [...finalSegments];
+          const interim = interimSegment.trim();
+          if (interim) {
+            segments.push(interim);
+          }
+          return segments.join(" ").replace(/\s+/g, " ").trim();
+        };
+
+        const finish = () => {
+          if (resolved) {
+            return;
+          }
+          resolved = true;
+          cleanup();
+          try {
+            recognition.stop();
+          } catch (stopError) {
+            console.warn("Error stopping user speech recognition", stopError);
+          }
+          const text = normaliseText();
+          resolve(text.length ? text : null);
+        };
+
+        const scheduleSilenceTimer = () => {
+          if (silenceTimer !== null) {
+            window.clearTimeout(silenceTimer);
+          }
+          silenceTimer = window.setTimeout(finish, SILENCE_TIMEOUT_MS);
+        };
+
+        recognition.onresult = (event: SpeechRecognitionEventLike) => {
+          for (let i = event.resultIndex; i < event.results.length; i += 1) {
+            const result = event.results[i];
+            const transcript = result?.[0]?.transcript ?? "";
+            if (!transcript) {
+              continue;
+            }
+            const trimmed = transcript.trim();
+            if (result?.isFinal) {
+              if (
+                !finalSegments.length ||
+                finalSegments[finalSegments.length - 1] !== trimmed
+              ) {
+                finalSegments.push(trimmed);
+              }
+              interimSegment = "";
+            } else {
+              interimSegment = trimmed;
+            }
+          }
+
+          scheduleSilenceTimer();
+        };
+
+        recognition.onerror = (event: SpeechRecognitionErrorEventLike) => {
+          console.warn(
+            "Speech recognition error while listening to the user",
+            event
+          );
+          setMicError(
+            typeof event?.error === "string"
+              ? `Speech recognition error: ${event.error}`
+              : "Microphone listening error occurred."
+          );
+          finish();
+        };
+
+        recognition.onend = () => {
+          finish();
+        };
+
+        try {
+          recognition.start();
+          maxTimer = window.setTimeout(finish, MAX_LISTEN_MS);
+        } catch (startError) {
+          console.warn(
+            "Unable to start follow-up speech recognition",
+            startError
+          );
+          cleanup();
+          const fallback = seed;
+          resolve(fallback.length ? fallback : null);
+        }
+      });
+    },
+    [setMicError]
+  );
+
+  const handleWakeWordMatch = useCallback(
+    async (detection: WakeWordDetectionResult) => {
+      if (isHandlingWakeWordRef.current) {
+        return;
+      }
+
+      isHandlingWakeWordRef.current = true;
+      wakeWordPausedRef.current = true;
+
+      if (recognitionRef.current) {
+        try {
+          recognitionRef.current.stop();
+        } catch (stopError) {
+          console.warn("Error stopping wake word recognition", stopError);
+        }
+      }
+
+      setIsMicListening(false);
+
+      try {
+        const callAgent = async (
+          rawText: string,
+          strippedText: string,
+          wakeWordUsed: boolean
+        ) => {
+          const agentResponse = await answerUserQuestion({
+            sessionId: conversationSessionIdRef.current,
+            text: rawText,
+            strippedText,
+            wakeWordDetected: wakeWordUsed,
+            wakeWord: activeWakeWord,
+            placeName: selectedPoi?.name,
+          });
+
+          setMicError(null);
+
+          if (agentResponse.ended) {
+            setConversationSessionId(null);
+          } else {
+            setConversationSessionId(agentResponse.sessionId);
+          }
+
+          if (agentResponse.reply) {
+            await narrateToUser(agentResponse.reply);
+          }
+
+          return agentResponse;
+        };
+
+        const capturedSpeech = await listenToUser(detection.stripped ?? "");
+        const trimmedSpeech = capturedSpeech?.replace(/\s+/g, " ").trim();
+
+        if (!trimmedSpeech) {
+          return;
+        }
+
+        const rawQuestion = [detection.wakeWord, trimmedSpeech]
+          .filter(Boolean)
+          .join(" ")
+          .replace(/\s+/g, " ")
+          .trim();
+
+        const initialResponse = await callAgent(
+          rawQuestion,
+          trimmedSpeech,
+          true
+        );
+
+        if (initialResponse.ended) {
+          return;
+        }
+
+        while (true) {
+          const followUpRaw = await listenToUser("");
+          const followUp = followUpRaw?.replace(/\s+/g, " ").trim();
+
+          if (!followUp) {
+            break;
+          }
+
+          const followUpResponse = await callAgent(followUp, followUp, false);
+
+          if (followUpResponse.ended) {
+            break;
+          }
+        }
+      } catch (error) {
+        console.error("Failed to process wake word conversation", error);
+        setMicError(
+          error instanceof Error
+            ? error.message
+            : "Unable to process your request right now."
+        );
+      } finally {
+        wakeWordPausedRef.current = false;
+        isHandlingWakeWordRef.current = false;
+        setWakeWordDetectedAt(null);
+        setWakeWordPhrase("");
+
+        if (recognitionRef.current) {
+          try {
+            recognitionRef.current.start();
+            setIsMicListening(true);
+          } catch (restartError) {
+            console.warn(
+              "Unable to restart wake word recognition after conversation",
+              restartError
+            );
+            setMicError(
+              "Microphone listener stopped unexpectedly. Reload to retry."
+            );
+          }
+        }
+      }
+    },
+    [activeWakeWord, listenToUser, selectedPoi]
+  );
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -215,6 +486,10 @@ export default function StorytellerPage() {
         recognition.interimResults = true;
 
         recognition.onresult = (event: SpeechRecognitionEventLike) => {
+          if (wakeWordPausedRef.current || isHandlingWakeWordRef.current) {
+            return;
+          }
+
           const transcripts: string[] = [];
 
           for (let i = event.resultIndex; i < event.results.length; i += 1) {
@@ -229,12 +504,13 @@ export default function StorytellerPage() {
             return;
           }
 
-          const combined = transcripts.join(" ").toLowerCase();
+          const combined = transcripts.join(" ");
           const detection = detectAndStripWakeWord(combined, activeWakeWord);
 
           if (detection.matched) {
             setWakeWordPhrase(detection.wakeWord);
             setWakeWordDetectedAt(Date.now());
+            void handleWakeWordMatch(detection);
           }
         };
 
@@ -250,7 +526,7 @@ export default function StorytellerPage() {
         };
 
         recognition.onend = () => {
-          if (!cancelled) {
+          if (!cancelled && !wakeWordPausedRef.current) {
             try {
               recognition.start();
             } catch (restartError) {
@@ -299,7 +575,11 @@ export default function StorytellerPage() {
       }
       mediaStreamRef.current = null;
     };
-  }, [activeWakeWord]);
+  }, [activeWakeWord, handleWakeWordMatch]);
+
+  useEffect(() => {
+    conversationSessionIdRef.current = conversationSessionId;
+  }, [conversationSessionId]);
 
   useEffect(() => {
     if (!wakeWordDetectedAt) {
@@ -507,9 +787,7 @@ export default function StorytellerPage() {
                   <select
                     className="mt-1 w-full rounded-lg border border-slate-800 bg-slate-950/80 px-3 py-2 text-sm text-slate-100 focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/30"
                     value={selectedVoiceId}
-                    onChange={(event) =>
-                      setSelectedVoiceId(event.target.value)
-                    }
+                    onChange={(event) => setSelectedVoiceId(event.target.value)}
                     aria-label="Voice model"
                   >
                     {Object.entries(VOICE_CONFIG).map(([name, config]) => (

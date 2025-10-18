@@ -5,6 +5,77 @@ import { useCallback, useMemo, useState, useRef, useEffect } from "react";
 import { narrateToUser } from "@/lib/storytelling";
 import { DEFAULT_WAKE_WORD, detectAndStripWakeWord } from "@/lib/wake-word";
 
+type AnswerUserQuestionParams = {
+  sessionId?: string | null;
+  text: string;
+  strippedText?: string;
+  wakeWordDetected?: boolean;
+  wakeWord?: string;
+  placeName?: string;
+  lat?: number;
+  lng?: number;
+};
+
+export type AnswerUserQuestionResult = {
+  sessionId: string | null;
+  reply: string;
+  ended: boolean;
+  endReason: string | null;
+  meta?: {
+    turn?: number;
+    lastSeenAt?: string | null;
+    expiresAt?: string | null;
+    detectedWakeWord?: boolean;
+    knowledgeReferences?: string[];
+    usedWebSearch?: boolean;
+    webSearchNote?: string | null;
+  };
+};
+
+export async function answerUserQuestion(
+  params: AnswerUserQuestionParams
+): Promise<AnswerUserQuestionResult> {
+  const {
+    sessionId = null,
+    text,
+    strippedText,
+    wakeWordDetected,
+    wakeWord = DEFAULT_WAKE_WORD,
+    placeName,
+    lat,
+    lng,
+  } = params;
+
+  const response = await fetch("/api/conversation", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      sessionId,
+      text,
+      strippedText,
+      wakeWordDetected,
+      wakeWord,
+      placeName,
+      lat,
+      lng,
+    }),
+  });
+
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error(data?.error ?? "Failed to reach the tour guide.");
+  }
+
+  return {
+    sessionId: data?.sessionId ?? null,
+    reply: data?.reply ?? "",
+    ended: Boolean(data?.ended),
+    endReason: data?.endReason ?? null,
+    meta: data?.meta,
+  };
+}
+
 type ConversationMessage = {
   id: string;
   role: "user" | "assistant";
@@ -238,25 +309,14 @@ export default function ConversationPage() {
       setError(null);
 
       try {
-        console.log("sending to api");
-        const response = await fetch("/api/conversation", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            sessionId,
-            text: rawTranscript,
-            strippedText: detection.stripped,
-            wakeWordDetected: detection.matched,
-            wakeWord: effectiveWakeWord,
-            placeName: placeName.trim() || undefined,
-          }),
+        const data = await answerUserQuestion({
+          sessionId,
+          text: rawTranscript,
+          strippedText: detection.stripped,
+          wakeWordDetected: detection.matched,
+          wakeWord: effectiveWakeWord,
+          placeName: placeName.trim() || undefined,
         });
-
-        const data = await response.json();
-
-        if (!response.ok) {
-          throw new Error(data?.error ?? "Failed to reach the tour guide.");
-        }
 
         const userMessage: ConversationMessage = {
           id: createMessageId("user"),
