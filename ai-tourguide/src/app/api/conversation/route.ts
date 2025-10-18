@@ -174,8 +174,8 @@ export async function POST(req: Request) {
       sessionId: session.id,
     });
     console.log("agentResult", agentResult);
-    const reply = agentResult.answer;
-    // const reply = await rewriteReplyToFriendlyTone(agentResult.answer, lang);
+    // const reply = agentResult.answer;
+    const reply = await rewriteReplyToFriendlyTone(agentResult.answer, lang);
 
     const history = session.messages;
 

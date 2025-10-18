@@ -29,6 +29,8 @@ import {
   ConversationHistoryStore,
   ConversationRecord,
 } from "./conversation-history";
+import { promises as fs } from "fs";
+import { resolve } from "path";
 import { hostedWebSearchTool } from "./tools/web-search-tool";
 
 export type AgentQuery = {
@@ -332,10 +334,34 @@ export class TourGuideAgent {
           .join("\n\n")
       : "No past conversations recorded yet.";
 
+    const raw = await fs.readFile(
+      resolve(process.cwd(), "data/conversation-history.json"),
+      "utf-8"
+    );
+    const parsed = JSON.parse(raw);
+    const images = parsed?.["image-analysis"];
+
+    // Parse items with format "image-analysis:[details]" into an array of details
+    const imageAnalysisDetails = [];
+    console.log("parsed", parsed);
+    if (Array.isArray(images)) {
+      for (const item of images) {
+        if (item.assistant) {
+          imageAnalysisDetails.push(item.assistant);
+        }
+      }
+    }
+
+    console.log(imageAnalysisDetails);
+    const imageAnalysisContext = imageAnalysisDetails
+      .map((detail, index) => `Image Analysis ${index + 1}: ${detail}`)
+      .join("\n\n");
+
     const userContext = [
       "Previous exchanges with travellers:",
       historyContext,
       `User query: ${query}`,
+      `Users have uploaded images for analysis: ${imageAnalysisContext}`,
       "Use the available tools to gather facts before finalising your answer. Call the knowledge lookup first; call web search only if local notes are insufficient or stale.",
       "Respond directly to the user. Reference the knowledge entry names or sources when useful.",
     ].join("\n\n");
