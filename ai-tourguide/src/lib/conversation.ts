@@ -48,10 +48,6 @@ export function getSession(sessionId?: string | null) {
   return s;
 }
 
-export function isExpired(session: Session) {
-  return now() - session.lastSeenAt > IDLE_MS;
-}
-
 export function expiresAt(session: Session) {
   return session.lastSeenAt + IDLE_MS;
 }

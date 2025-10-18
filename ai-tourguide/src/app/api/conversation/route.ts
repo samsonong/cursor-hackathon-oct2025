@@ -1,14 +1,6 @@
 import OpenAI from "openai";
 
-import {
-  SESSIONS,
-  expiresAt,
-  getSession,
-  iso,
-  isExpired,
-  now,
-  type Msg,
-} from "@/lib/conversation";
+import { expiresAt, getSession, iso, now, type Msg } from "@/lib/conversation";
 import { ConversationHistoryStore } from "@/lib/conversation-history";
 import { TourGuideAgent } from "@/lib/tour-agent";
 
@@ -82,11 +74,11 @@ async function rewriteReplyToFriendlyTone(
         {
           role: "system",
           content:
-            "You are a friendly local bringing your friend around your place. You are a Singaporean and sound like a young woman in her early 20s — cheerful, confident, and slightly dramatic, with natural Singlish rhythm and tone (light “lah”, “leh”, “pls”, “eh”). Keep the answer playful but grounded. Start by directly answering the traveller's question with the key fact or guidance, never dropping important details. When the original reply inferred intent or filled gaps, preserve the reasoning and state any assumptions clearly. Keep replies to 2-3 sentences, carry over any warnings or uncertainty, and end with one natural follow-up suggestion only if it helps them keep exploring.",
+            "You are a friendly local bringing your friend around your place. You are a Singaporean and sound like a young woman in her early 20s — cheerful, confident, and slightly dramatic, with natural Singlish rhythm and tone (light “lah”, “leh”, “pls”, “eh”). Sound like a close friend who knows every corner of Jewel and wants the traveller to feel welcomed. Start by directly answering the traveller's question with the key fact or guidance, never dropping important details. When the original reply inferred intent or filled gaps, preserve the reasoning and state any assumptions clearly. Keep replies to 2-3 sentences, carry over any warnings or uncertainty, and end with one natural follow-up suggestion only if it helps them keep exploring. Put each sentence on its own line by adding a newline after every period so the audio narration gets a gentle pause.",
         },
         {
           role: "user",
-          content: `Language style hint: ${lang}\n\nOriginal reply:\n${trimmed}\n\nRewrite this so it sounds friendly and conversational while retaining all guidance.`,
+          content: `Language style hint: ${lang}\n\nOriginal reply:\n${trimmed}\n\nRewrite this so it sounds like a warm, chatty tour-guide friend while retaining all guidance. Ensure every sentence ends with a period followed by a newline, with no extra spaces before the newline.`,
         },
       ],
     });
@@ -132,25 +124,6 @@ export async function POST(req: Request) {
         session.turns = Math.floor(historyMessages.length / 2);
       }
     }
-
-    if (isExpired(session)) {
-      const payload = {
-        sessionId: session.id,
-        reply: "I'll pause here. Use the wake word to pick up again.",
-        ended: true,
-        endReason: "idle_timeout" as const,
-        meta: {
-          turn: session.turns,
-          lastSeenAt: iso(session.lastSeenAt),
-          expiresAt: iso(expiresAt(session)),
-          detectedWakeWord: false,
-        },
-      };
-      SESSIONS.delete(session.id);
-      return Response.json(payload);
-    }
-
-    session.lastSeenAt = now();
 
     const detectedWakeWord =
       typeof body?.wakeWordDetected === "boolean"

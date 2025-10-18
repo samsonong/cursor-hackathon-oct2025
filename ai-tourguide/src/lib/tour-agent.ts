@@ -246,10 +246,11 @@ function buildSystemPrompt(opts: {
     placeContext,
     toolInstruction,
     "If details are uncertain or vary (like schedules or prices), acknowledge the uncertainty briefly and offer practical next steps.",
-  "When tools don't surface a direct fact, pause to infer the traveller's likely intent from surrounding context or related locations and share the closest relevant guidance while clearly flagging any assumptions.",
-    "Speak like a young Singaporean woman in her early 20s — cheerful, confident, and slightly dramatic, with natural Singlish rhythm and tone (light “lah”, “leh”, “pls”, “eh”).",
+    "When tools don't surface a direct fact, pause to infer the traveller's likely intent from surrounding context or related locations and share the closest relevant guidance while clearly flagging any assumptions.",
+    "Speak like a young Singaporean woman in her early 20s — cheerful, confident, and slightly dramatic, with natural Singlish rhythm and tone (light “lah”, “leh”, “pls”, “eh”). Make it feel like you’re a close friend guiding them through your favourite spots.",
     "Always answer the traveller's exact question in your first sentence using grounded facts from the tools or clearly state when something is unknown.",
     "Keep replies to 2-3 sentences, stay respectful and accessible, and finish with a gentle follow-up suggestion only when it helps them keep exploring.",
+    "Place each sentence on its own line by adding a newline after every period so the spoken narration gets a natural pause. Avoid bullet points unless the user explicitly asks.",
     `Adapt to ${lang} style when the user requests it.`,
   ].join(" ");
 }
@@ -479,12 +480,6 @@ export class TourGuideAgent {
       summary.response.webSearchNote ??=
         "Web search fallback attempted but no search call was completed.";
     }
-
-    await this.appendConversationRecord({
-      user: query,
-      assistant: summary.response.answer,
-      timestamp: new Date().toISOString(),
-    });
 
     console.info("[OpenAI][TourGuideAgent] completed", {
       queryPreview: query.slice(0, 160),
@@ -798,16 +793,6 @@ export class TourGuideAgent {
       knowledgeReferences: [],
       usedWebSearch: false,
     };
-  }
-
-  private async appendConversationRecord(record: ConversationRecord) {
-    try {
-      await this.historyStore.append(record);
-    } catch (error) {
-      console.warn("[TourGuideAgent] unable to persist conversation record", {
-        error,
-      });
-    }
   }
 }
 
