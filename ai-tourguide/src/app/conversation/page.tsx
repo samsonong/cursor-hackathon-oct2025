@@ -117,7 +117,7 @@ export default function ConversationPage() {
   const currentVoiceTranscriptRef = useRef<string>("");
 
   // Voice listening timeout (3 seconds of silence)
-  const VOICE_SILENCE_TIMEOUT = 1500;
+  const VOICE_SILENCE_TIMEOUT = 5000;
 
   const effectiveWakeWord = useMemo(
     () => (wakeWord.trim() ? wakeWord.trim() : DEFAULT_WAKE_WORD),

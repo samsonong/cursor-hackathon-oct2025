@@ -25,6 +25,10 @@ import {
   TourAgentContext,
   knowledgeLookupTool,
 } from "./tools/knowledge-tool";
+import {
+  ConversationHistoryStore,
+  ConversationRecord,
+} from "./conversation-history";
 import { hostedWebSearchTool } from "./tools/web-search-tool";
 
 export type AgentQuery = {
@@ -243,6 +247,7 @@ export class TourGuideAgent {
   private agent: Agent<TourAgentContext>;
   private model: string;
   private static instance: TourGuideAgent | null = null;
+  private historyStore: ConversationHistoryStore;
 
   constructor(opts?: { apiKey?: string; model?: string }) {
     const apiKey = opts?.apiKey ?? process.env.OPENAI_API_KEY;
@@ -251,6 +256,7 @@ export class TourGuideAgent {
     }
     setDefaultOpenAIKey(apiKey);
     this.model = opts?.model ?? process.env.GUIDE_MODEL ?? "gpt-4o-mini";
+    this.historyStore = new ConversationHistoryStore();
     this.agent = new Agent<TourAgentContext>({
       name: "Wei Jie Tour Companion",
       model: this.model,
@@ -284,7 +290,27 @@ export class TourGuideAgent {
       throw new Error("Query text must be provided.");
     }
 
+    const conversationHistory = await this.historyStore
+      .loadHistory(10)
+      .catch((error) => {
+        console.warn("[TourGuideAgent] unable to load conversation history", {
+          error,
+        });
+        return [] as ConversationRecord[];
+      });
+
+    const historyContext = conversationHistory.length
+      ? conversationHistory
+          .map((entry) => {
+            const timestamp = new Date(entry.timestamp).toISOString();
+            return `Time: ${timestamp}\nTraveller: ${entry.user}\nGuide: ${entry.assistant}`;
+          })
+          .join("\n\n")
+      : "No past conversations recorded yet.";
+
     const userContext = [
+      "Previous exchanges with travellers:",
+      historyContext,
       `User query: ${query}`,
       "Use the available tools to gather facts before finalising your answer. Call the knowledge lookup first; call web search only if local notes are insufficient or stale.",
       "Respond directly to the user. Reference the knowledge entry names or sources when useful.",
@@ -374,6 +400,12 @@ export class TourGuideAgent {
       summary.response.webSearchNote ??=
         "Web search fallback attempted but no search call was completed.";
     }
+
+    await this.appendConversationRecord({
+      user: query,
+      assistant: summary.response.answer,
+      timestamp: new Date().toISOString(),
+    });
 
     return summary.response;
   }
@@ -628,6 +660,16 @@ export class TourGuideAgent {
       knowledgeReferences: [],
       usedWebSearch: false,
     };
+  }
+
+  private async appendConversationRecord(record: ConversationRecord) {
+    try {
+      await this.historyStore.append(record);
+    } catch (error) {
+      console.warn("[TourGuideAgent] unable to persist conversation record", {
+        error,
+      });
+    }
   }
 }
 
