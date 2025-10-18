@@ -80,46 +80,77 @@ function ensureKnowledgeDigestAgent(): Agent {
   return knowledgeDigestAgent;
 }
 
-function tokenize(text: string) {
-  return text
-    .toLowerCase()
-    .replace(/[^a-z0-9\s]+/g, " ")
-    .split(/\s+/)
-    .filter(Boolean);
+// Pre-compile regex for better performance
+const TOKENIZE_REGEX = /[^a-z0-9\s]+/g;
+const WHITESPACE_REGEX = /\s+/;
+
+function tokenize(text: string): string[] {
+  // Single pass: lowercase, clean, and split
+  const cleaned = text.toLowerCase().replace(TOKENIZE_REGEX, " ");
+  const tokens: string[] = [];
+  let start = 0;
+
+  // Manual split to avoid creating intermediate arrays
+  for (let i = 0; i <= cleaned.length; i++) {
+    if (i === cleaned.length || WHITESPACE_REGEX.test(cleaned[i])) {
+      if (i > start) {
+        tokens.push(cleaned.slice(start, i));
+      }
+      start = i + 1;
+    }
+  }
+
+  return tokens;
 }
 
 function scoreEntry(
   entry: KnowledgeEntry,
   queryTokens: string[]
 ): KnowledgeMatch | null {
-  const haystack = [
-    entry.name,
-    entry.summary,
-    entry.details,
-    entry.tags?.join(" ") ?? "",
-  ]
-    .join(" ")
-    .toLowerCase();
+  // Pre-compute searchable text once
+  const searchableText = `${entry.name} ${entry.summary || ""} ${
+    entry.details || ""
+  } ${entry.tags?.join(" ") || ""}`.toLowerCase();
 
   let score = 0;
-  const highlights: string[] = [];
+  let exactMatches = 0;
+  let partialMatches = 0;
 
-  queryTokens.forEach((token) => {
-    if (haystack.includes(token)) {
-      score += 1;
+  // More sophisticated scoring with different weights
+  for (const token of queryTokens) {
+    // Exact matches in name get highest weight
+    if (entry.name.toLowerCase().includes(token)) {
+      score += 3;
+      exactMatches++;
     }
-  });
+    // Matches in summary get medium weight
+    else if (entry.summary?.toLowerCase().includes(token)) {
+      score += 2;
+      partialMatches++;
+    }
+    // Matches in details get lower weight
+    else if (entry.details?.toLowerCase().includes(token)) {
+      score += 1;
+      partialMatches++;
+    }
+    // Tag matches get medium weight
+    else if (entry.tags?.some((tag) => tag.toLowerCase().includes(token))) {
+      score += 2;
+      partialMatches++;
+    }
+  }
 
   if (score === 0) {
     return null;
   }
 
-  if (entry.summary) {
-    highlights.push(entry.summary);
-  }
-  if (entry.details) {
-    highlights.push(entry.details);
-  }
+  // Boost score for entries with more exact matches
+  score += exactMatches * 0.5;
+
+  // Prepare highlights more efficiently
+  const highlights: string[] = [];
+  if (entry.summary) highlights.push(entry.summary);
+  if (entry.details) highlights.push(entry.details);
 
   return { ...entry, score, highlights };
 }
@@ -134,73 +165,90 @@ function searchKnowledgeIndex(query: string, limit = 3): KnowledgeMatch[] {
     return [];
   }
 
-  const matches = KNOWLEDGE.entries
-    .map((entry) => scoreEntry(entry, tokens))
-    .filter((match): match is KnowledgeMatch => Boolean(match))
-    .sort((a, b) => b.score - a.score)
-    .slice(0, limit);
+  // Single pass: score, filter, and collect results
+  const matches: KnowledgeMatch[] = [];
 
-  return matches;
+  for (const entry of KNOWLEDGE.entries) {
+    const match = scoreEntry(entry, tokens);
+    if (match) {
+      matches.push(match);
+    }
+  }
+
+  // Sort by score (descending) and take top results
+  matches.sort((a, b) => b.score - a.score);
+  return matches.slice(0, limit);
 }
 
-function buildKnowledgeContext(matches: KnowledgeMatch[]) {
+function buildKnowledgeContext(matches: KnowledgeMatch[]): string {
   if (!matches.length) {
     return "No indexed Jewel notes matched the request.";
   }
-  const lines: string[] = matches.map((match, index) => {
+
+  // Pre-allocate array for better performance
+  const lines: string[] = new Array(matches.length);
+
+  for (let i = 0; i < matches.length; i++) {
+    const match = matches[i];
     const bullets = match.highlights
       .slice(0, 2)
       .map((snippet) => `- ${snippet}`);
-    const sourceNotes =
-      match.sources?.map(
+
+    // Build source line more efficiently
+    let sourceLine = "Sources: internal field notes.";
+    if (match.sources?.length) {
+      const sourceNotes = match.sources.map(
         (src) => `${src.type}${src.note ? ` (${src.note})` : ""}`
-      ) ?? [];
-    const sourceLine = sourceNotes.length
-      ? `Sources: ${sourceNotes.join("; ")}`
-      : "Sources: internal field notes.";
-    return [
-      `Entry ${index + 1}: ${match.name} [${match.id}]`,
+      );
+      sourceLine = `Sources: ${sourceNotes.join("; ")}`;
+    }
+
+    lines[i] = [
+      `Entry ${i + 1}: ${match.name} [${match.id}]`,
       ...bullets,
       sourceLine,
     ].join("\n");
-  });
+  }
+
   return lines.join("\n\n");
 }
 
-function formatMatchesForDigest(matches: KnowledgeMatch[]) {
-  return matches
-    .map((match, index) => {
-      const summaryLine = match.summary
-        ? `Summary: ${match.summary}`
-        : undefined;
-      const details = match.details?.trim() ?? "";
-      const truncatedDetails = details
-        ? `Details: ${
-            details.length > 400 ? `${details.slice(0, 400)}...` : details
-          }`
-        : undefined;
-      const tagsLine = match.tags?.length
-        ? `Tags: ${match.tags.join(", ")}`
-        : undefined;
-      const sourceNotes =
-        match.sources?.map(
-          (src) => `${src.type}${src.note ? ` (${src.note})` : ""}`
-        ) ?? [];
-      const sourceLine = sourceNotes.length
-        ? `Sources: ${sourceNotes.join("; ")}`
-        : "Sources: internal field notes.";
+function formatMatchesForDigest(matches: KnowledgeMatch[]): string {
+  const result: string[] = new Array(matches.length);
 
-      return [
-        `Entry ${index + 1}: ${match.name} [${match.id}]`,
-        summaryLine,
-        truncatedDetails,
-        tagsLine,
-        sourceLine,
-      ]
-        .filter(Boolean)
-        .join("\n");
-    })
-    .join("\n\n");
+  for (let i = 0; i < matches.length; i++) {
+    const match = matches[i];
+    const parts: string[] = [`Entry ${i + 1}: ${match.name} [${match.id}]`];
+
+    if (match.summary) {
+      parts.push(`Summary: ${match.summary}`);
+    }
+
+    if (match.details) {
+      const details = match.details.trim();
+      const truncatedDetails =
+        details.length > 400 ? `${details.slice(0, 400)}...` : details;
+      parts.push(`Details: ${truncatedDetails}`);
+    }
+
+    if (match.tags?.length) {
+      parts.push(`Tags: ${match.tags.join(", ")}`);
+    }
+
+    // Build source line efficiently
+    let sourceLine = "Sources: internal field notes.";
+    if (match.sources?.length) {
+      const sourceNotes = match.sources.map(
+        (src) => `${src.type}${src.note ? ` (${src.note})` : ""}`
+      );
+      sourceLine = `Sources: ${sourceNotes.join("; ")}`;
+    }
+    parts.push(sourceLine);
+
+    result[i] = parts.join("\n");
+  }
+
+  return result.join("\n\n");
 }
 
 async function digestMatchesWithAgent(
@@ -253,15 +301,22 @@ export const knowledgeLookupTool = tool({
     "Search the curated Jewel Changi Airport knowledge base for relevant entries. Use this before considering a web search.",
   parameters: KNOWLEDGE_LOOKUP_PARAMETERS,
   strict: true,
-  execute: async (input: KnowledgeLookupInput, runCtx: { context?: TourAgentContext }): Promise<string> => {
+  execute: async (
+    input: KnowledgeLookupInput,
+    runCtx: { context?: TourAgentContext }
+  ): Promise<string> => {
     const limit = input.limit ?? 3;
     const context = runCtx?.context as TourAgentContext | undefined;
     const minimumScore =
       input.minimumScore ?? context?.minimumKnowledgeScore ?? 1;
-    const matches = searchKnowledgeIndex(input.query, limit).filter(
-      (match) => match.score >= minimumScore
-    );
 
+    // Get more matches initially to filter by score, then limit
+    const allMatches = searchKnowledgeIndex(input.query, limit * 2);
+    const matches = allMatches
+      .filter((match) => match.score >= minimumScore)
+      .slice(0, limit);
+
+    // Update trace if context exists
     if (context?.runTrace) {
       context.runTrace.knowledgeLookups.push({
         query: input.query,
@@ -285,22 +340,19 @@ export const knowledgeLookupTool = tool({
       return `No indexed knowledge matched "${input.query}".`;
     }
 
+    // Build response more efficiently
+    const matchCount = matches.length;
+    const isPlural = matchCount !== 1;
+
     const summary = buildKnowledgeContext(matches);
     const digest = await digestMatchesWithAgent(input.query, matches);
 
     if (digest) {
-      return [
-        `Knowledge digest from ${matches.length} entr${
-          matches.length === 1 ? "y" : "ies"
-        }`,
-        digest,
-        `Supporting notes:\n${summary}`,
-      ].join("\n\n");
+      return `Knowledge digest from ${matchCount} entr${
+        isPlural ? "ies" : "y"
+      }\n\n${digest}\n\nSupporting notes:\n${summary}`;
     }
 
-    return [
-      `Matched ${matches.length} knowledge entries for "${input.query}".`,
-      summary,
-    ].join("\n\n");
+    return `Matched ${matchCount} knowledge entries for "${input.query}".\n\n${summary}`;
   },
 });
