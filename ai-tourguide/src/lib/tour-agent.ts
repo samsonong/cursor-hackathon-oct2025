@@ -561,7 +561,8 @@ export class TourGuideAgent {
     response: AgentResponse,
     runTrace: AgentRunTrace
   ): boolean {
-    if (runTrace.knowledgeLookups.length === 0) {
+    const answer = response.answer?.trim();
+    if (!answer) {
       return true;
     }
     return false;

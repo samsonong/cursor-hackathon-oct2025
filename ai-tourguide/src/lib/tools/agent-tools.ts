@@ -54,7 +54,7 @@ export type TourAgentContext = {
 
 const KNOWLEDGE: KnowledgeIndexFile = knowledgeIndex;
 
-export const MAX_QUERY_LENGTH = 280;
+export const MAX_QUERY_LENGTH = 4000;
 
 function tokenize(text: string) {
   return text
