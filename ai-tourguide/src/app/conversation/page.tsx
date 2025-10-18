@@ -21,6 +21,15 @@ type ConversationMessage = {
   };
 };
 
+type SessionMetaState = {
+  turn: number;
+  lastSeenAt?: string | null;
+  expiresAt?: string | null;
+  detectedWakeWord?: boolean;
+  usedWebSearch?: boolean;
+  webSearchNote?: string | null;
+};
+
 function formatTimestamp(ts: number) {
   try {
     return new Date(ts).toLocaleTimeString();
@@ -53,10 +62,40 @@ export default function ConversationPage() {
     ended: boolean;
     reason: string | null;
   }>({ ended: false, reason: null });
+  const [sessionMeta, setSessionMeta] = useState<SessionMetaState | null>(null);
 
   const effectiveWakeWord = useMemo(
     () => (wakeWord.trim() ? wakeWord.trim() : DEFAULT_WAKE_WORD),
     [wakeWord]
+  );
+
+  const formatIsoTimestamp = useCallback((value?: string | null) => {
+    if (!value) {
+      return "—";
+    }
+    const date = new Date(value);
+    if (Number.isNaN(date.valueOf())) {
+      return value;
+    }
+    return `${date.toLocaleDateString()} ${date.toLocaleTimeString()}`;
+  }, []);
+
+  const conversationTurnCount = useMemo(() => {
+    if (sessionMeta?.turn != null && sessionMeta.turn > 0) {
+      return sessionMeta.turn;
+    }
+    return Math.floor(messages.length / 2);
+  }, [messages, sessionMeta]);
+
+  const quickPrompts = useMemo(
+    () => [
+      `${effectiveWakeWord}, what should I explore first at Jewel?`,
+      "Can you suggest a dining option nearby?",
+      "What time does the Rain Vortex show start?",
+      "Any kid-friendly activities I should consider?",
+      "What's a quiet spot to relax for a bit?",
+    ],
+    [effectiveWakeWord]
   );
 
   const recomputeWakeWordState = useCallback(
@@ -101,107 +140,133 @@ export default function ConversationPage() {
     setIsSending(false);
     setError(null);
     setConversationEnded({ ended: false, reason: null });
+    setSessionMeta(null);
   }, []);
 
-  const sendTranscript = useCallback(async () => {
-    if (conversationEnded.ended) {
-      setError("Session ended. Reset to start again.");
-      return;
-    }
+  const sendTranscript = useCallback(
+    async (overrideTranscript?: string) => {
+      if (conversationEnded.ended) {
+        setError("Session ended. Reset to start again.");
+        return;
+      }
 
-    const rawTranscript = transcript;
-    const trimmed = rawTranscript.trim();
+      const rawTranscript =
+        overrideTranscript !== undefined ? overrideTranscript : transcript;
+      const trimmed = rawTranscript.trim();
 
-    if (!trimmed) {
-      setError("Provide a transcript before sending.");
-      return;
-    }
+      if (!trimmed) {
+        setError("Provide a transcript before sending.");
+        return;
+      }
 
-    const detection = detectAndStripWakeWord(rawTranscript, effectiveWakeWord);
-    const firstTurn = !sessionId;
-
-    setWakeWordDetected(detection.matched);
-    setStrippedTranscript(detection.stripped);
-
-    if (firstTurn && !detection.matched) {
-      setError(
-        `Include the wake word (“${effectiveWakeWord}”) in the first message to start the session.`
+      const detection = detectAndStripWakeWord(
+        rawTranscript,
+        effectiveWakeWord
       );
-      return;
-    }
+      const firstTurn = !sessionId;
 
-    setIsSending(true);
-    setError(null);
+      setWakeWordDetected(detection.matched);
+      setStrippedTranscript(detection.stripped);
 
-    try {
-      const response = await fetch("/api/conversation", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          sessionId,
-          text: rawTranscript,
-          strippedText: detection.stripped,
-          wakeWordDetected: detection.matched,
-          wakeWord: effectiveWakeWord,
-          placeName: placeName.trim() || undefined,
-        }),
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data?.error ?? "Failed to reach the tour guide.");
+      if (firstTurn && !detection.matched) {
+        setError(
+          `Include the wake word (“${effectiveWakeWord}”) in the first message to start the session.`
+        );
+        return;
       }
 
-      const userMessage: ConversationMessage = {
-        id: createMessageId("user"),
-        role: "user",
-        text: detection.stripped.trim() || trimmed,
-        timestamp: Date.now(),
-        meta: {
-          detectedWakeWord: detection.matched,
-        },
-      };
+      setIsSending(true);
+      setError(null);
 
-      const assistantMessage: ConversationMessage = {
-        id: createMessageId("assistant"),
-        role: "assistant",
-        text: data?.reply ?? "",
-        timestamp: Date.now(),
-        meta: {
-          knowledgeReferences: data?.meta?.knowledgeReferences ?? undefined,
-          usedWebSearch: data?.meta?.usedWebSearch ?? undefined,
-          webSearchNote: data?.meta?.webSearchNote ?? null,
-          endReason: data?.endReason ?? null,
-        },
-      };
-
-      setMessages((prev) => [...prev, userMessage, assistantMessage]);
-      setSessionId(data?.sessionId ?? null);
-      setTranscript("");
-      setStrippedTranscript("");
-      setWakeWordDetected(false);
-
-      if (data?.ended) {
-        setConversationEnded({
-          ended: true,
-          reason: data?.endReason ?? null,
+      try {
+        const response = await fetch("/api/conversation", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            sessionId,
+            text: rawTranscript,
+            strippedText: detection.stripped,
+            wakeWordDetected: detection.matched,
+            wakeWord: effectiveWakeWord,
+            placeName: placeName.trim() || undefined,
+          }),
         });
-      } else {
-        setConversationEnded({ ended: false, reason: null });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data?.error ?? "Failed to reach the tour guide.");
+        }
+
+        const userMessage: ConversationMessage = {
+          id: createMessageId("user"),
+          role: "user",
+          text: detection.stripped.trim() || trimmed,
+          timestamp: Date.now(),
+          meta: {
+            detectedWakeWord: detection.matched,
+          },
+        };
+
+        const assistantMessage: ConversationMessage = {
+          id: createMessageId("assistant"),
+          role: "assistant",
+          text: data?.reply ?? "",
+          timestamp: Date.now(),
+          meta: {
+            knowledgeReferences: data?.meta?.knowledgeReferences ?? undefined,
+            usedWebSearch: data?.meta?.usedWebSearch ?? undefined,
+            webSearchNote: data?.meta?.webSearchNote ?? null,
+            endReason: data?.endReason ?? null,
+          },
+        };
+
+        setMessages((prev) => [...prev, userMessage, assistantMessage]);
+        setSessionId(data?.sessionId ?? null);
+        setTranscript("");
+        setStrippedTranscript("");
+        setWakeWordDetected(false);
+
+        if (data?.meta) {
+          setSessionMeta({
+            turn: typeof data.meta.turn === "number" ? data.meta.turn : 0,
+            lastSeenAt: data.meta.lastSeenAt ?? null,
+            expiresAt: data.meta.expiresAt ?? null,
+            detectedWakeWord: data.meta.detectedWakeWord,
+            usedWebSearch: data.meta.usedWebSearch,
+            webSearchNote: data.meta.webSearchNote ?? null,
+          });
+        }
+
+        if (data?.ended) {
+          setConversationEnded({
+            ended: true,
+            reason: data?.endReason ?? null,
+          });
+        } else {
+          setConversationEnded({ ended: false, reason: null });
+        }
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Unexpected error.");
+      } finally {
+        setIsSending(false);
       }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unexpected error.");
-    } finally {
-      setIsSending(false);
-    }
-  }, [
-    conversationEnded.ended,
-    effectiveWakeWord,
-    placeName,
-    sessionId,
-    transcript,
-  ]);
+    },
+    [
+      conversationEnded.ended,
+      effectiveWakeWord,
+      placeName,
+      sessionId,
+      transcript,
+    ]
+  );
+
+  const handleQuickPrompt = useCallback(
+    (prompt: string) => {
+      void sendTranscript(prompt);
+    },
+    [sendTranscript]
+  );
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
@@ -291,10 +356,32 @@ export default function ConversationPage() {
                 <p className="text-xs text-rose-300">{error}</p>
               ) : null}
 
+              <div className="rounded-xl border border-slate-800/60 bg-slate-950/50 p-4">
+                <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Quick prompts
+                </h3>
+                <p className="mt-1 text-xs text-slate-500">
+                  Use these to exercise multi-turn flows quickly. The first
+                  option includes the wake word automatically.
+                </p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {quickPrompts.map((prompt) => (
+                    <button
+                      key={prompt}
+                      type="button"
+                      onClick={() => handleQuickPrompt(prompt)}
+                      className="rounded-full border border-slate-800/70 bg-slate-900/60 px-3 py-1 text-xs text-slate-200 transition hover:border-emerald-400 hover:text-emerald-100 focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
+                    >
+                      {prompt}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
               <div className="flex flex-col gap-2 sm:flex-row">
                 <button
                   type="button"
-                  onClick={sendTranscript}
+                  onClick={() => sendTranscript()}
                   disabled={isSending}
                   className="inline-flex items-center justify-center rounded-lg bg-emerald-500 px-4 py-2 text-sm font-semibold text-emerald-950 transition hover:bg-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 disabled:cursor-not-allowed disabled:bg-emerald-700/60"
                 >
@@ -376,6 +463,70 @@ export default function ConversationPage() {
                 Messages will appear here after you send the first request.
               </p>
             )}
+
+            <div className="mt-6 rounded-xl border border-slate-800/70 bg-slate-950/60 p-4 text-xs text-slate-400">
+              <h3 className="text-sm font-semibold text-slate-100">
+                Session diagnostics
+              </h3>
+              <dl className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                <div>
+                  <dt className="uppercase tracking-wide text-slate-500">
+                    Session ID
+                  </dt>
+                  <dd className="mt-1 break-all text-slate-100">
+                    {sessionId ?? "—"}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="uppercase tracking-wide text-slate-500">
+                    Turn count
+                  </dt>
+                  <dd className="mt-1 text-slate-100">
+                    {conversationTurnCount || 0}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="uppercase tracking-wide text-slate-500">
+                    Last seen
+                  </dt>
+                  <dd className="mt-1 text-slate-100">
+                    {formatIsoTimestamp(sessionMeta?.lastSeenAt)}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="uppercase tracking-wide text-slate-500">
+                    Expires at
+                  </dt>
+                  <dd className="mt-1 text-slate-100">
+                    {formatIsoTimestamp(sessionMeta?.expiresAt)}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="uppercase tracking-wide text-slate-500">
+                    Server wake word
+                  </dt>
+                  <dd className="mt-1 text-slate-100">
+                    {sessionMeta?.detectedWakeWord === undefined
+                      ? "—"
+                      : sessionMeta.detectedWakeWord
+                      ? "Yes"
+                      : "No"}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="uppercase tracking-wide text-slate-500">
+                    Web search
+                  </dt>
+                  <dd className="mt-1 text-slate-100">
+                    {sessionMeta?.usedWebSearch === undefined
+                      ? "—"
+                      : sessionMeta.usedWebSearch
+                      ? sessionMeta.webSearchNote ?? "Used"
+                      : "Not used"}
+                  </dd>
+                </div>
+              </dl>
+            </div>
           </aside>
         </section>
 

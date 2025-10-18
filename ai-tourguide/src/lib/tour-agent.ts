@@ -44,9 +44,104 @@ export type AgentResponse = {
   webSearchNote?: string;
 };
 
-const MAX_AGENT_TURNS = 4;
+const MAX_AGENT_TURNS = 20;
 const MAX_TOKEN_BUDGET = 4000;
 const MAX_REQUEST_COUNT = 4;
+
+type AgentRunTrace = {
+  knowledgeLookups: KnowledgeLookupTrace[];
+};
+
+type AgentExecution = {
+  agentRun: any;
+  runTrace: AgentRunTrace;
+};
+
+type UsageStats = {
+  totalTokens: number;
+  inputTokens: number;
+  outputTokens: number;
+  requests: number;
+};
+
+type AgentRunSummary = {
+  response: AgentResponse;
+  usage: UsageStats;
+};
+
+type ExecuteAgentRunParams = {
+  userContext: string;
+  placeName?: string;
+  lang: string;
+  minimumKnowledgeScore: number;
+  preferWebSearch?: boolean;
+};
+
+const KEYWORD_STOPWORDS = new Set([
+  "the",
+  "a",
+  "an",
+  "and",
+  "or",
+  "but",
+  "when",
+  "what",
+  "where",
+  "why",
+  "how",
+  "does",
+  "do",
+  "did",
+  "is",
+  "are",
+  "am",
+  "was",
+  "were",
+  "be",
+  "being",
+  "been",
+  "to",
+  "for",
+  "at",
+  "on",
+  "in",
+  "of",
+  "with",
+  "about",
+  "from",
+  "into",
+  "over",
+  "after",
+  "before",
+  "this",
+  "that",
+  "these",
+  "those",
+  "i",
+  "you",
+  "we",
+  "they",
+  "he",
+  "she",
+  "it",
+  "me",
+  "my",
+  "your",
+  "our",
+  "their",
+  "can",
+  "could",
+  "would",
+  "should",
+  "will",
+  "shall",
+  "have",
+  "has",
+  "had",
+  "just",
+  "really",
+  "please",
+]);
 
 const INPUT_LENGTH_GUARDRAIL: InputGuardrail = {
   name: "query_length_limit",
@@ -79,6 +174,13 @@ const INPUT_LENGTH_GUARDRAIL: InputGuardrail = {
 
     const length = raw.length;
     const triggered = length > MAX_QUERY_LENGTH;
+
+    if (triggered) {
+      console.warn("[TourGuideAgent] input guardrail raw payload", {
+        preview: raw.slice(0, 200),
+        length,
+      });
+    }
 
     return {
       tripwireTriggered: triggered,
@@ -113,16 +215,23 @@ const OUTPUT_NON_EMPTY_GUARDRAIL: OutputGuardrail = {
   },
 };
 
-function buildSystemPrompt(opts: { placeName?: string; lang?: string }) {
-  const { placeName, lang = "en-SG" } = opts;
+function buildSystemPrompt(opts: {
+  placeName?: string;
+  lang?: string;
+  preferWebSearch?: boolean;
+}) {
+  const { placeName, lang = "en-SG", preferWebSearch = false } = opts;
   const placeContext = placeName
     ? `You are helping a visitor explore ${placeName} in Singapore.`
     : "You are helping a visitor explore Jewel Changi Airport in Singapore.";
+  const toolInstruction = preferWebSearch
+    ? "The previous knowledge lookup felt uncertain. Prioritise the `run_web_search` tool to verify current details, then blend it with any helpful local notes."
+    : "Call tools when you need information: start with `lookup_local_knowledge` for curated notes and only call `run_web_search` when the local data is insufficient or the traveller needs real-time updates.";
 
   return [
     "You are Wei Jie, a friendly, well-informed local tour companion focused on Jewel Changi Airport.",
     placeContext,
-    "Call tools when you need information: start with `lookup_local_knowledge` for curated notes and only call `run_web_search` when the local data is insufficient or the traveller needs real-time updates.",
+    toolInstruction,
     "If details are uncertain or vary (like schedules or prices), acknowledge the uncertainty briefly.",
     "Keep replies to 2–4 sentences and close with a short follow-up suggestion.",
     `Write in ${lang} style when the user requests it.`,
@@ -148,6 +257,7 @@ export class TourGuideAgent {
         buildSystemPrompt({
           placeName: runCtx.context?.placeName,
           lang: runCtx.context?.lang,
+          preferWebSearch: Boolean(runCtx.context?.preferWebSearch),
         }),
       tools: [knowledgeLookupTool, hostedWebSearchTool],
       inputGuardrails: [INPUT_LENGTH_GUARDRAIL],
@@ -173,31 +283,118 @@ export class TourGuideAgent {
       throw new Error("Query text must be provided.");
     }
 
-    const runTrace = {
-      knowledgeLookups: [] as KnowledgeLookupTrace[],
-    };
-
     const userContext = [
       `User query: ${query}`,
       "Use the available tools to gather facts before finalising your answer. Call the knowledge lookup first; call web search only if local notes are insufficient or stale.",
       "Respond directly to the user. Reference the knowledge entry names or sources when useful.",
     ].join("\n\n");
 
-    let agentRun;
+    const baseRunParams = {
+      userContext,
+      placeName,
+      lang,
+      minimumKnowledgeScore,
+    };
+
+    let summary: AgentRunSummary;
+    let execution: AgentExecution;
     try {
-      agentRun = await run(this.agent, userContext, {
-        context: {
-          placeName,
-          lang,
-          minimumKnowledgeScore,
-          runTrace,
-        },
-        maxTurns: MAX_AGENT_TURNS,
+      execution = await this.executeAgentRun({
+        ...baseRunParams,
       });
+      summary = this.buildAgentResponse(execution.agentRun, execution.runTrace, query);
     } catch (error) {
-      return this.handleAgentError(error);
+      return this.handleAgentError(error, { query });
     }
 
+    let fallbackAttempted = false;
+    if (
+      this.shouldFallbackToWebSearch(query, summary.response, execution.runTrace)
+    ) {
+      fallbackAttempted = true;
+      console.info("[TourGuideAgent] rerunning with web search preference", {
+        query,
+      });
+      try {
+        execution = await this.executeAgentRun({
+          ...baseRunParams,
+          preferWebSearch: true,
+        });
+        summary = this.buildAgentResponse(
+          execution.agentRun,
+          execution.runTrace,
+          query
+        );
+      } catch (error) {
+        return this.handleAgentError(error, { query });
+      }
+
+      if (
+        this.shouldFallbackToWebSearch(
+          query,
+          summary.response,
+          execution.runTrace
+        )
+      ) {
+        console.warn(
+          "[TourGuideAgent] web search fallback still produced a questionable answer",
+          { query }
+        );
+      }
+    }
+
+    const { totalTokens, requests } = summary.usage;
+
+    if (totalTokens > MAX_TOKEN_BUDGET || requests > MAX_REQUEST_COUNT) {
+      console.warn("[TourGuideAgent] cost limit exceeded", {
+        query,
+        totalTokens,
+        requests,
+      });
+      return {
+        answer:
+          "Sorry, I hit my processing budget for that request. Could you rephrase it more concisely?",
+        knowledgeReferences: [],
+        usedWebSearch: summary.response.usedWebSearch,
+        webSearchNote: summary.response.webSearchNote,
+      };
+    }
+
+    if (fallbackAttempted && !summary.response.usedWebSearch) {
+      // Ensure the caller knows the answer may still need verification.
+      summary.response.webSearchNote ??=
+        "Web search fallback attempted but no search call was completed.";
+    }
+
+    return summary.response;
+  }
+
+  private async executeAgentRun(
+    params: ExecuteAgentRunParams
+  ): Promise<AgentExecution> {
+    const runTrace: AgentRunTrace = {
+      knowledgeLookups: [],
+    };
+
+    const agentRun = await run(this.agent, params.userContext, {
+      context: {
+        placeName: params.placeName,
+        lang: params.lang,
+        minimumKnowledgeScore: params.minimumKnowledgeScore,
+        runTrace,
+        preferWebSearch: params.preferWebSearch,
+      },
+      maxTurns: MAX_AGENT_TURNS,
+    });
+
+    return { agentRun, runTrace };
+  }
+
+  private buildAgentResponse(
+    agentRun: any,
+    runTrace: AgentRunTrace,
+    query: string
+  ): AgentRunSummary {
     const rawAnswer = agentRun.finalOutput;
     const answer =
       typeof rawAnswer === "string" && rawAnswer.trim()
@@ -206,7 +403,7 @@ export class TourGuideAgent {
 
     const usageData =
       (
-        agentRun as unknown as {
+        agentRun as {
           state?: {
             context?: {
               usage?: {
@@ -232,11 +429,9 @@ export class TourGuideAgent {
     );
 
     const runItems =
-      (
-        agentRun as unknown as {
-          newItems?: Array<{ rawItem?: any }>;
-        }
-      ).newItems ?? [];
+      (agentRun as {
+        newItems?: Array<{ rawItem?: any }>;
+      })?.newItems ?? [];
 
     const webSearchCalls = runItems
       .map((item) => item?.rawItem)
@@ -251,6 +446,12 @@ export class TourGuideAgent {
     let webSearchNote: string | undefined;
 
     if (usedWebSearch) {
+      console.info("[TourGuideAgent] web search tool triggered", {
+        calls: webSearchCalls.map((call: any) => ({
+          name: call?.name,
+          arguments: call?.arguments,
+        })),
+      });
       const lastCall = webSearchCalls[webSearchCalls.length - 1];
       let queryText: string | undefined;
 
@@ -292,33 +493,88 @@ export class TourGuideAgent {
       webSearches: webSearchCalls.length,
     });
 
-    if (totalTokens > MAX_TOKEN_BUDGET || requests > MAX_REQUEST_COUNT) {
-      console.warn("[TourGuideAgent] cost limit exceeded", {
-        query,
-        totalTokens,
-        requests,
-      });
-      return {
-        answer:
-          "Sorry, I hit my processing budget for that request. Could you rephrase it more concisely?",
-        knowledgeReferences: [],
+    return {
+      response: {
+        answer,
+        knowledgeReferences,
         usedWebSearch,
         webSearchNote,
-      };
-    }
-
-    return {
-      answer,
-      knowledgeReferences,
-      usedWebSearch,
-      webSearchNote,
+      },
+      usage: {
+        totalTokens,
+        inputTokens: usageData.inputTokens ?? 0,
+        outputTokens: usageData.outputTokens ?? 0,
+        requests,
+      },
     };
   }
 
-  private handleAgentError(error: unknown): AgentResponse {
+  private shouldFallbackToWebSearch(
+    query: string,
+    response: AgentResponse,
+    runTrace: AgentRunTrace
+  ): boolean {
+    if (runTrace.knowledgeLookups.length === 0) {
+      return false;
+    }
+
+    if (response.usedWebSearch) {
+      return false;
+    }
+
+    const hasMatches = runTrace.knowledgeLookups.some(
+      (lookup) => lookup.matches.length > 0
+    );
+    if (!hasMatches) {
+      return true;
+    }
+
+    const answer = response.answer?.trim();
+    if (!answer) {
+      return true;
+    }
+
+    if (answer.length < 24) {
+      return true;
+    }
+
+    const answerLower = answer.toLowerCase();
+
+    const keywords = this.extractKeywords(query);
+    const hasKeywordOverlap =
+      !keywords.length ||
+      keywords.some((keyword) => answerLower.includes(keyword));
+
+    const knowledgeTokens = runTrace.knowledgeLookups
+      .flatMap((lookup) => lookup.matches)
+      .flatMap((match) => this.extractKeywords(match.name));
+
+    const mentionsKnowledge =
+      !knowledgeTokens.length ||
+      knowledgeTokens.some((token) => answerLower.includes(token));
+
+    return !(hasKeywordOverlap && mentionsKnowledge);
+  }
+
+  private extractKeywords(text: string): string[] {
+    return text
+      .toLowerCase()
+      .replace(/[^a-z0-9\s]+/g, " ")
+      .split(/\s+/)
+      .filter(
+        (token) => token.length >= 4 && !KEYWORD_STOPWORDS.has(token)
+      );
+  }
+
+  private handleAgentError(
+    error: unknown,
+    context?: { query?: string }
+  ): AgentResponse {
     if (error instanceof InputGuardrailTripwireTriggered) {
       console.warn("[TourGuideAgent] input guardrail triggered", {
         message: error.message,
+        query: context?.query,
+        queryLength: context?.query?.length,
       });
       return {
         answer:

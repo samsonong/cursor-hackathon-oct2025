@@ -6,9 +6,7 @@ import {
   iso,
   isExpired,
   now,
-  type Msg,
 } from "@/lib/conversation";
-import { detectAndStripWakeWord } from "@/lib/wake-word";
 import { TourGuideAgent } from "@/lib/tour-agent";
 
 export const runtime = "nodejs";
@@ -22,10 +20,6 @@ export async function POST(req: Request) {
     const trimmedText = text.trim();
     const strippedFromClient =
       typeof body?.strippedText === "string" ? body.strippedText.trim() : "";
-    const wakeWordOverride =
-      typeof body?.wakeWord === "string" && body.wakeWord.trim()
-        ? body.wakeWord.trim()
-        : undefined;
     const placeName = body?.placeName ? String(body.placeName) : undefined;
     const lat = typeof body?.lat === "number" ? body.lat : undefined;
     const lng = typeof body?.lng === "number" ? body.lng : undefined;
@@ -56,28 +50,11 @@ export async function POST(req: Request) {
 
     session.lastSeenAt = now();
 
-    let detectedWakeWord = false;
-    let userText = strippedFromClient || trimmedText;
-    if (session.turns === 0) {
-      const hasClientWakeFlag =
-        body && Object.prototype.hasOwnProperty.call(body, "wakeWordDetected");
-      if (hasClientWakeFlag) {
-        detectedWakeWord = Boolean(body.wakeWordDetected);
-        if (detectedWakeWord) {
-          if (!strippedFromClient) {
-            const res = detectAndStripWakeWord(trimmedText, wakeWordOverride);
-            detectedWakeWord = res.matched;
-            userText = res.stripped || trimmedText;
-          }
-        } else {
-          userText = strippedFromClient || trimmedText;
-        }
-      } else {
-        const res = detectAndStripWakeWord(trimmedText, wakeWordOverride);
-        detectedWakeWord = res.matched;
-        userText = res.stripped || trimmedText;
-      }
-    }
+    const detectedWakeWord =
+      typeof body?.wakeWordDetected === "boolean"
+        ? body.wakeWordDetected
+        : session.turns > 0;
+    const userText = strippedFromClient || trimmedText;
 
     const requestedLang =
       body?.lang !== undefined ? String(body.lang) : undefined;
@@ -95,7 +72,7 @@ export async function POST(req: Request) {
     });
     const reply = agentResult.answer;
 
-    const history = session.messages.slice(-MAX_TURNS * 2);
+    const history = session.messages;
     session.messages = [
       ...history,
       { role: "user", content: userText },
@@ -128,4 +105,3 @@ export async function POST(req: Request) {
     );
   }
 }
-
