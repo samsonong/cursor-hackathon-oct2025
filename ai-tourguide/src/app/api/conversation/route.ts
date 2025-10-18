@@ -1,3 +1,5 @@
+import OpenAI from "openai";
+
 import {
   SESSIONS,
   expiresAt,
@@ -7,6 +9,62 @@ import {
   now,
 } from "@/lib/conversation";
 import { TourGuideAgent } from "@/lib/tour-agent";
+
+const FRIENDLY_TONE_MODEL =
+  process.env.OPENAI_FRIENDLY_TONE_MODEL ?? "gpt-4o-mini";
+
+let cachedOpenAI: OpenAI | null = null;
+
+function getOpenAIClient(): OpenAI {
+  if (cachedOpenAI) {
+    return cachedOpenAI;
+  }
+
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) {
+    throw new Error(
+      "OPENAI_API_KEY is required to adjust conversation tone with OpenAI."
+    );
+  }
+
+  cachedOpenAI = new OpenAI({ apiKey });
+  return cachedOpenAI;
+}
+
+async function rewriteReplyToFriendlyTone(
+  text: string,
+  lang: string
+): Promise<string> {
+  const trimmed = text.trim();
+  if (!trimmed) {
+    return text;
+  }
+
+  try {
+    const client = getOpenAIClient();
+    const response = await client.responses.create({
+      model: FRIENDLY_TONE_MODEL,
+      max_output_tokens: 500,
+      input: [
+        {
+          role: "system",
+          content:
+            "You are a friendly local bringing your friend around your place. You are a singaporean and sound like a young woman in her early 20s — cheerful, confident, and slightly dramatic, with natural Singlish rhythm and tone. She speaks fast and animatedly, with casual English and light Singlish inflection (like “lah”, “leh”, “pls”, “eh”). The overall mood: charismatic, witty, expressive — a young Singaporean girl who can go from “LOL that one so cringe” to “but honestly, it’s kinda true lah”, with good pause using fullstops and break into paragraphs. Structure every reply as: (1) quick overview about the place, (2) personalised highlight that links to the traveller's interests or needs, BUT do not repeat my input (3) One leading question ONLY that invites them to continue exploring. Stay respectful, accessible, and keep it under 50 words.",
+        },
+        {
+          role: "user",
+          content: `Language style hint: ${lang}\n\nOriginal reply:\n${trimmed}\n\nRewrite this so it sounds friendly and conversational while retaining all guidance.`,
+        },
+      ],
+    });
+
+    const output = response.output_text?.trim();
+    return output && output.length ? output : text;
+  } catch (error) {
+    console.warn("[ConversationAPI] friendly tone rewrite failed", { error });
+    return text;
+  }
+}
 
 export const runtime = "nodejs";
 
@@ -71,7 +129,7 @@ export async function POST(req: Request) {
           : undefined,
     });
     console.log("agentResult", agentResult);
-    const reply = agentResult.answer;
+    const reply = await rewriteReplyToFriendlyTone(agentResult.answer, lang);
 
     const history = session.messages;
     console.log("history", history);
@@ -97,6 +155,7 @@ export async function POST(req: Request) {
         knowledgeReferences: agentResult.knowledgeReferences,
         usedWebSearch: agentResult.usedWebSearch,
         webSearchNote: agentResult.webSearchNote,
+        reply: reply,
       },
     };
     console.log("payload", payload);

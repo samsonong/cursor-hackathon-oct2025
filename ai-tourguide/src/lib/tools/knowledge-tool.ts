@@ -1,4 +1,4 @@
-import { tool } from "@openai/agents";
+import { Agent, run, setDefaultOpenAIKey, tool } from "@openai/agents";
 import { z } from "zod";
 import knowledgeIndex from "@/data/changi-jewel/index.json";
 
@@ -55,6 +55,30 @@ export type TourAgentContext = {
 const KNOWLEDGE: KnowledgeIndexFile = knowledgeIndex;
 
 export const MAX_QUERY_LENGTH = 1000;
+
+const KNOWLEDGE_DIGEST_MODEL =
+  process.env.KNOWLEDGE_DIGEST_MODEL ?? "gpt-4o-mini";
+
+let knowledgeDigestAgent: Agent | null = null;
+
+function ensureKnowledgeDigestAgent(): Agent {
+  if (!knowledgeDigestAgent) {
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (!apiKey) {
+      throw new Error(
+        "OPENAI_API_KEY is required to run the knowledge digest agent."
+      );
+    }
+    setDefaultOpenAIKey(apiKey);
+    knowledgeDigestAgent = new Agent({
+      name: "Jewel Knowledge Digest",
+      model: KNOWLEDGE_DIGEST_MODEL,
+      instructions:
+        "You read curated Jewel Changi Airport notes and craft concise grounded answers. Reference entry names when helpful and keep replies to 2-3 sentences.",
+    });
+  }
+  return knowledgeDigestAgent;
+}
 
 function tokenize(text: string) {
   return text
@@ -143,6 +167,74 @@ function buildKnowledgeContext(matches: KnowledgeMatch[]) {
   return lines.join("\n\n");
 }
 
+function formatMatchesForDigest(matches: KnowledgeMatch[]) {
+  return matches
+    .map((match, index) => {
+      const summaryLine = match.summary
+        ? `Summary: ${match.summary}`
+        : undefined;
+      const details = match.details?.trim() ?? "";
+      const truncatedDetails = details
+        ? `Details: ${
+            details.length > 400 ? `${details.slice(0, 400)}...` : details
+          }`
+        : undefined;
+      const tagsLine = match.tags?.length
+        ? `Tags: ${match.tags.join(", ")}`
+        : undefined;
+      const sourceNotes =
+        match.sources?.map(
+          (src) => `${src.type}${src.note ? ` (${src.note})` : ""}`
+        ) ?? [];
+      const sourceLine = sourceNotes.length
+        ? `Sources: ${sourceNotes.join("; ")}`
+        : "Sources: internal field notes.";
+
+      return [
+        `Entry ${index + 1}: ${match.name} [${match.id}]`,
+        summaryLine,
+        truncatedDetails,
+        tagsLine,
+        sourceLine,
+      ]
+        .filter(Boolean)
+        .join("\n");
+    })
+    .join("\n\n");
+}
+
+async function digestMatchesWithAgent(
+  query: string,
+  matches: KnowledgeMatch[]
+): Promise<string | null> {
+  if (!matches.length) {
+    return null;
+  }
+
+  try {
+    const agent = ensureKnowledgeDigestAgent();
+    const formattedMatches = formatMatchesForDigest(matches);
+    const prompt = [
+      `Traveller question: ${query}`,
+      "Grounded Jewel notes:",
+      formattedMatches,
+      "Respond as a friendly local guide. Use only the provided notes, keep to 2-3 sentences, mention entry names when helpful, and end with a short follow-up suggestion.",
+    ].join("\n\n");
+
+    const digestRun = await run(agent, prompt, { maxTurns: 4 });
+    const output = digestRun?.finalOutput;
+    if (typeof output === "string" && output.trim()) {
+      return output.trim();
+    }
+  } catch (error) {
+    console.warn("[TourGuideAgent] knowledge digest agent error", {
+      error,
+    });
+  }
+
+  return null;
+}
+
 // Tool that searches the curated Jewel knowledge index and records the lookup trace.
 const KNOWLEDGE_LOOKUP_PARAMETERS = z
   .object({
@@ -193,6 +285,18 @@ export const knowledgeLookupTool = tool({
     }
 
     const summary = buildKnowledgeContext(matches);
+    const digest = await digestMatchesWithAgent(input.query, matches);
+
+    if (digest) {
+      return [
+        `Knowledge digest from ${matches.length} entr${
+          matches.length === 1 ? "y" : "ies"
+        }`,
+        digest,
+        `Supporting notes:\n${summary}`,
+      ].join("\n\n");
+    }
+
     return [
       `Matched ${matches.length} knowledge entries for "${input.query}".`,
       summary,
