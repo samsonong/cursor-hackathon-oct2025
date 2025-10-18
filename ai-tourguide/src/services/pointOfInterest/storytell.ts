@@ -2,7 +2,11 @@
 
 import OpenAI from "openai";
 
-import { PlaceOfInterest, UserPreferences } from "@/lib/storytelling";
+import {
+  PlaceOfInterest,
+  UserPreferences,
+  prepareUserPreferences,
+} from "@/lib/storytelling";
 
 const DEFAULT_MODEL = process.env.OPENAI_TOUR_GUIDE_MODEL ?? "gpt-4.1-mini";
 const DEFAULT_TEMPERATURE = Number.parseFloat(
@@ -10,6 +14,28 @@ const DEFAULT_TEMPERATURE = Number.parseFloat(
 );
 
 let cachedClient: OpenAI | null = null;
+
+function toTitleCase(value: string): string {
+  return value
+    .split(" ")
+    .filter(Boolean)
+    .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
+    .join(" ");
+}
+
+function formatPersonaExtras(extras: Record<string, string>): string {
+  return Object.entries(extras)
+    .map(([key, value]) => {
+      const readableKey = key
+        .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+        .replace(/[-_]+/g, " ")
+        .trim()
+        .replace(/\s+/g, " ");
+
+      return `${toTitleCase(readableKey || key)}: ${value}`;
+    })
+    .join("\n");
+}
 
 function getClient(): OpenAI {
   if (cachedClient) {
@@ -44,26 +70,29 @@ export async function narratePointOfInterestWithOpenAI({
   extraGuidance,
 }: NarrationRequest): Promise<string> {
   const client = getClient();
+  const prepared = prepareUserPreferences(preferences);
 
   const toneDescriptor =
-    preferences.preferredTone === "playful"
+    prepared.preferredTone === "playful"
       ? "playful, energetic"
-      : preferences.preferredTone === "elegant"
+      : prepared.preferredTone === "elegant"
       ? "elegant, graceful"
       : "warm, inviting";
 
   const paceDescriptor =
-    preferences.preferredPace === "leisurely"
+    prepared.preferredPace === "leisurely"
       ? "at an easy-going pace"
-      : preferences.preferredPace === "adventurous"
+      : prepared.preferredPace === "adventurous"
       ? "with dynamic momentum"
       : "with concise momentum";
 
-  const interests = preferences.interests.join(", ");
-  const companions = preferences.tripCompanions.join(", ");
+  const interests = prepared.interests.join(", ");
+  const companions = prepared.tripCompanions.join(", ");
   const highlights = poi.highlights.join("; ");
   const sensory = poi.sensoryDetails.join("; ");
   const insiderTips = poi.insiderTips?.join("; ") ?? "";
+
+  const extraPersonaNotes = formatPersonaExtras(prepared.extras);
 
   const userContent = `
 Point of interest: ${poi.name}
@@ -74,14 +103,29 @@ Suggested duration: ${poi.suggestedDuration}
 Insider tips: ${insiderTips}
 Call to action: ${poi.callToAction ?? "Invite them to explore soon."}
 
-Traveller name: ${preferences.travelerName}
+Traveller name: ${prepared.travelerName}
 Companions: ${companions || "Solo trip"}
 Interests: ${interests || "General exploration"}
 Preferred tone: ${toneDescriptor}
 Preferred pace: ${paceDescriptor}
-Accessibility notes: ${preferences.accessibilityNotes ?? "None provided"}
+Accessibility notes: ${prepared.accessibilityNotes ?? "None provided"}
+Original tone hint: ${
+    typeof preferences.preferredTone === "string" &&
+    preferences.preferredTone.trim()
+      ? preferences.preferredTone.trim()
+      : "Not specified"
+  }
+Original pace hint: ${
+    typeof preferences.preferredPace === "string" &&
+    preferences.preferredPace.trim()
+      ? preferences.preferredPace.trim()
+      : "Not specified"
+  }
 Additional guidance: ${
     extraGuidance ?? "Keep the narration vivid and human, 120-160 words."
+  }
+Additional persona context: ${
+    extraPersonaNotes || "No extra persona context supplied"
   }
 `;
 

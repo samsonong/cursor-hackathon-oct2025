@@ -1,4 +1,14 @@
 export type UserPreferences = {
+  travelerName?: string;
+  tripCompanions?: string[] | string;
+  interests?: string[] | string;
+  preferredTone?: string;
+  preferredPace?: string;
+  accessibilityNotes?: string;
+  [key: string]: unknown;
+};
+
+export type NormalizedUserPreferences = {
   travelerName: string;
   tripCompanions: string[];
   interests: string[];
@@ -6,6 +16,207 @@ export type UserPreferences = {
   preferredPace: "leisurely" | "adventurous" | "express";
   accessibilityNotes?: string;
 };
+
+export type PreparedUserPreferences = NormalizedUserPreferences & {
+  raw: UserPreferences;
+  extras: Record<string, string>;
+};
+
+const toneSynonyms: Record<
+  NormalizedUserPreferences["preferredTone"],
+  string[]
+> = {
+  playful: ["playful", "fun", "energetic", "lively", "witty", "cheerful"],
+  warm: ["warm", "friendly", "caring", "comforting", "welcoming", "kind"],
+  elegant: [
+    "elegant",
+    "refined",
+    "luxurious",
+    "sophisticated",
+    "graceful",
+    "polished",
+  ],
+};
+
+const paceSynonyms: Record<
+  NormalizedUserPreferences["preferredPace"],
+  string[]
+> = {
+  leisurely: ["leisurely", "relaxed", "unhurried", "gentle", "easy"],
+  adventurous: ["adventurous", "dynamic", "energised", "exploratory", "bold"],
+  express: ["express", "brisk", "efficient", "fast", "purposeful"],
+};
+
+const knownPreferenceKeys = new Set(
+  Object.keys({
+    travelerName: true,
+    tripCompanions: true,
+    interests: true,
+    preferredTone: true,
+    preferredPace: true,
+    accessibilityNotes: true,
+  })
+);
+
+function normaliseName(value: unknown): string {
+  if (typeof value === "string" && value.trim()) {
+    return value.trim();
+  }
+
+  return "Explorer";
+}
+
+function normaliseStringArray(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value
+      .filter((item): item is string => typeof item === "string")
+      .map((item) => item.trim())
+      .filter(Boolean);
+  }
+
+  if (typeof value === "string") {
+    return value
+      .split(/[,|]/)
+      .map((entry) => entry.trim())
+      .filter(Boolean);
+  }
+
+  return [];
+}
+
+function normaliseTone(
+  value: string | undefined
+): NormalizedUserPreferences["preferredTone"] {
+  if (!value) {
+    return "warm";
+  }
+
+  const lookup = value.trim().toLowerCase();
+
+  for (const [tone, options] of Object.entries(toneSynonyms)) {
+    if (options.includes(lookup)) {
+      return tone as NormalizedUserPreferences["preferredTone"];
+    }
+  }
+
+  return ["playful", "warm", "elegant"].includes(lookup)
+    ? (lookup as NormalizedUserPreferences["preferredTone"])
+    : "warm";
+}
+
+function normalisePace(
+  value: string | undefined
+): NormalizedUserPreferences["preferredPace"] {
+  if (!value) {
+    return "leisurely";
+  }
+
+  const lookup = value.trim().toLowerCase();
+
+  for (const [pace, options] of Object.entries(paceSynonyms)) {
+    if (options.includes(lookup)) {
+      return pace as NormalizedUserPreferences["preferredPace"];
+    }
+  }
+
+  return ["leisurely", "adventurous", "express"].includes(lookup)
+    ? (lookup as NormalizedUserPreferences["preferredPace"])
+    : "leisurely";
+}
+
+function normaliseAccessibilityNotes(value: unknown): string | undefined {
+  if (typeof value === "string") {
+    const cleaned = value.trim();
+    return cleaned.length ? cleaned : undefined;
+  }
+
+  return undefined;
+}
+
+function formatPreferenceExtras(
+  extras: Record<string, unknown>
+): Record<string, string> {
+  const formatted: Record<string, string> = {};
+
+  for (const [key, value] of Object.entries(extras)) {
+    if (value === undefined || value === null) {
+      continue;
+    }
+
+    if (typeof value === "string") {
+      const trimmed = value.trim();
+      if (!trimmed) {
+        continue;
+      }
+      formatted[key] = trimmed;
+      continue;
+    }
+
+    if (Array.isArray(value)) {
+      const filtered = value
+        .map((entry) =>
+          typeof entry === "string"
+            ? entry.trim()
+            : entry !== null && entry !== undefined
+            ? String(entry)
+            : ""
+        )
+        .filter(Boolean);
+
+      if (!filtered.length) {
+        continue;
+      }
+
+      formatted[key] = filtered.join(", ");
+      continue;
+    }
+
+    if (typeof value === "object") {
+      formatted[key] = JSON.stringify(value);
+      continue;
+    }
+
+    formatted[key] = String(value);
+  }
+
+  return formatted;
+}
+
+export function prepareUserPreferences(
+  preferences: UserPreferences
+): PreparedUserPreferences {
+  const raw = preferences ?? {};
+  const {
+    travelerName,
+    tripCompanions,
+    interests,
+    preferredTone,
+    preferredPace,
+    accessibilityNotes,
+    ...rest
+  } = raw;
+
+  const extras: Record<string, unknown> = {};
+
+  for (const [key, value] of Object.entries(rest)) {
+    if (!knownPreferenceKeys.has(key)) {
+      extras[key] = value;
+    }
+  }
+
+  const preparedExtras = formatPreferenceExtras(extras);
+
+  return {
+    travelerName: normaliseName(travelerName),
+    tripCompanions: normaliseStringArray(tripCompanions),
+    interests: normaliseStringArray(interests),
+    preferredTone: normaliseTone(preferredTone),
+    preferredPace: normalisePace(preferredPace),
+    accessibilityNotes: normaliseAccessibilityNotes(accessibilityNotes),
+    extras: preparedExtras,
+    raw,
+  };
+}
 
 export type PlaceOfInterest = {
   id: string;
@@ -31,23 +242,33 @@ export function generateStorytellingForPlaceOfInterest(
   preferences: UserPreferences,
   poi: PlaceOfInterest
 ): string {
-  const primaryInterest = pickFirstMatch(poi.highlights, preferences.interests);
+  const prepared = prepareUserPreferences(preferences);
+  const {
+    travelerName,
+    tripCompanions,
+    interests,
+    preferredTone,
+    preferredPace,
+    accessibilityNotes,
+  } = prepared;
+
+  const primaryInterest = pickFirstMatch(poi.highlights, interests);
   const highlightedMoment = primaryInterest ?? poi.highlights[0] ?? poi.summary;
   const tonePrefix =
-    preferences.preferredTone === "playful"
+    preferredTone === "playful"
       ? "Let me paint a vivid picture for you"
-      : preferences.preferredTone === "elegant"
+      : preferredTone === "elegant"
       ? "Allow me to share a refined glimpse"
       : "Here's what awaits you";
 
-  const companionLine = preferences.tripCompanions.length
-    ? `with ${preferences.tripCompanions.join(", ")}`
+  const companionLine = tripCompanions.length
+    ? `with ${tripCompanions.join(", ")}`
     : "solo";
 
   const paceLine =
-    preferences.preferredPace === "leisurely"
+    preferredPace === "leisurely"
       ? "Take your time to soak it all in"
-      : preferences.preferredPace === "adventurous"
+      : preferredPace === "adventurous"
       ? "Let the energy carry you forward"
       : "We'll keep things brisk and delightful";
 
@@ -55,8 +276,8 @@ export function generateStorytellingForPlaceOfInterest(
     ? `Picture ${poi.sensoryDetails.join(" and ")}.`
     : "You'll feel right at home the moment you arrive.";
 
-  const accessibilityLine = preferences.accessibilityNotes
-    ? `Keep in mind: ${preferences.accessibilityNotes}.`
+  const accessibilityLine = accessibilityNotes
+    ? `Keep in mind: ${accessibilityNotes}.`
     : "";
 
   const insiderLine = poi.insiderTips?.length
@@ -68,7 +289,7 @@ export function generateStorytellingForPlaceOfInterest(
     : `Shall we explore ${poi.name} now?`;
 
   return [
-    `${tonePrefix}, ${preferences.travelerName} ${companionLine}!`,
+    `${tonePrefix}, ${travelerName} ${companionLine}!`,
     poi.summary,
     `Highlight: ${highlightedMoment}.`,
     sensoryLine,

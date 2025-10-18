@@ -13,6 +13,7 @@ import {
   PlaceOfInterest,
   generateStorytellingForPlaceOfInterest,
   narrateToUser,
+  prepareUserPreferences,
 } from "@/lib/storytelling";
 
 type NarrationEntry = {
@@ -23,6 +24,15 @@ type NarrationEntry = {
 };
 
 const poiCatalog: PlaceOfInterest[] = [changiJewelMain, changiJewelRainVortext];
+const preparedPreferences = prepareUserPreferences(userPreferences);
+
+function toTitleCase(value: string): string {
+  return value
+    .split(" ")
+    .filter(Boolean)
+    .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
+    .join(" ");
+}
 
 function formatTimestamp(timestamp: number | null): string {
   if (!timestamp) {
@@ -45,6 +55,32 @@ export default function StorytellerPage() {
   const quickFactCards = knowledge.quickFacts.slice(0, 6);
   const historyHighlights = knowledge.history.slice(0, 4);
   const featuredFaqs = knowledge.faqs.slice(0, 3);
+  const personaExtras = preparedPreferences.extras;
+  const hasPersonaExtras = Object.keys(personaExtras).length > 0;
+
+  const toneDisplay = (() => {
+    const rawTone =
+      typeof userPreferences.preferredTone === "string"
+        ? userPreferences.preferredTone.trim()
+        : "";
+    const normalized = preparedPreferences.preferredTone;
+    if (rawTone && rawTone.toLowerCase() !== normalized) {
+      return `${toTitleCase(rawTone)} → ${toTitleCase(normalized)}`;
+    }
+    return toTitleCase(normalized);
+  })();
+
+  const paceDisplay = (() => {
+    const rawPace =
+      typeof userPreferences.preferredPace === "string"
+        ? userPreferences.preferredPace.trim()
+        : "";
+    const normalized = preparedPreferences.preferredPace;
+    if (rawPace && rawPace.toLowerCase() !== normalized) {
+      return `${toTitleCase(rawPace)} → ${toTitleCase(normalized)}`;
+    }
+    return toTitleCase(normalized);
+  })();
 
   const selectedPoi = useMemo(() => {
     return poiCatalog.find((poi) => poi.id === selectedPoiId) ?? null;
@@ -184,42 +220,66 @@ export default function StorytellerPage() {
               <div className="flex justify-between gap-4">
                 <dt className="text-slate-500">Name</dt>
                 <dd className="font-medium text-slate-100">
-                  {userPreferences.travelerName}
+                  {userPreferences.travelerName ??
+                    preparedPreferences.travelerName}
                 </dd>
               </div>
               <div className="flex justify-between gap-4">
                 <dt className="text-slate-500">Companions</dt>
                 <dd className="max-w-[60%] text-right text-slate-100">
-                  {userPreferences.tripCompanions.join(", ")}
+                  {preparedPreferences.tripCompanions.length
+                    ? preparedPreferences.tripCompanions.join(", ")
+                    : "—"}
                 </dd>
               </div>
               <div className="flex justify-between gap-4">
                 <dt className="text-slate-500">Interests</dt>
                 <dd className="max-w-[60%] text-right text-slate-100">
-                  {userPreferences.interests.join(", ")}
+                  {preparedPreferences.interests.length
+                    ? preparedPreferences.interests.join(", ")
+                    : "—"}
                 </dd>
               </div>
               <div className="flex justify-between gap-4">
                 <dt className="text-slate-500">Tone</dt>
-                <dd className="text-slate-100">
-                  {userPreferences.preferredTone}
-                </dd>
+                <dd className="text-slate-100">{toneDisplay}</dd>
               </div>
               <div className="flex justify-between gap-4">
                 <dt className="text-slate-500">Pace</dt>
-                <dd className="text-slate-100">
-                  {userPreferences.preferredPace}
+                <dd className="text-slate-100">{paceDisplay}</dd>
+              </div>
+              <div className="flex justify-between gap-4">
+                <dt className="text-slate-500">Accessibility</dt>
+                <dd className="max-w-[60%] text-right text-slate-100">
+                  {preparedPreferences.accessibilityNotes ?? "—"}
                 </dd>
               </div>
-              {userPreferences.accessibilityNotes ? (
-                <div className="flex justify-between gap-4">
-                  <dt className="text-slate-500">Accessibility</dt>
-                  <dd className="max-w-[60%] text-right text-slate-100">
-                    {userPreferences.accessibilityNotes}
-                  </dd>
-                </div>
-              ) : null}
             </dl>
+            {hasPersonaExtras ? (
+              <div className="mt-5 rounded-xl border border-slate-800/70 bg-slate-950/60 p-4 text-xs text-slate-300">
+                <h3 className="text-[13px] font-semibold uppercase tracking-wide text-slate-500">
+                  Persona context
+                </h3>
+                <dl className="mt-3 space-y-2">
+                  {Object.entries(personaExtras).map(([key, value]) => {
+                    const readableKey = key
+                      .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+                      .replace(/[-_]+/g, " ");
+
+                    return (
+                      <div key={key} className="flex justify-between gap-4">
+                        <dt className="text-slate-500">
+                          {toTitleCase(readableKey)}
+                        </dt>
+                        <dd className="max-w-[60%] text-right text-slate-100">
+                          {value}
+                        </dd>
+                      </div>
+                    );
+                  })}
+                </dl>
+              </div>
+            ) : null}
           </aside>
         </section>
 
