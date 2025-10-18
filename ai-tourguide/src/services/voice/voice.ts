@@ -1,5 +1,9 @@
 "use server";
 
+import { randomUUID } from "crypto";
+import { promises as fs } from "fs";
+import { resolve } from "path";
+
 import { VOICE_CONFIG } from "./data";
 
 const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY;
@@ -11,6 +15,107 @@ const VOICE_ALIAS_MAP: Record<string, string> = {
   "default-tour-guide": DEFAULT_VOICE_ID,
   default: DEFAULT_VOICE_ID,
 };
+
+const AUDIO_OUTPUT_DIR = resolve(process.cwd(), "data/generated-audio");
+let audioDirReady: Promise<void> | null = null;
+
+async function ensureAudioOutputDir(): Promise<void> {
+  if (!audioDirReady) {
+    audioDirReady = fs
+      .mkdir(AUDIO_OUTPUT_DIR, { recursive: true })
+      .then(() => undefined);
+  }
+
+  try {
+    await audioDirReady;
+  } catch (error) {
+    audioDirReady = null;
+    throw error;
+  }
+}
+
+function buildAudioFilePath(voiceId: string): string {
+  const safeVoice = voiceId
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 40);
+
+  const baseName = safeVoice.length ? safeVoice : "narration";
+  const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const fileName = `${baseName}-${timestamp}-${randomUUID()}.mp3`;
+  return resolve(AUDIO_OUTPUT_DIR, fileName);
+}
+
+async function streamToBuffer(
+  stream: ReadableStream<Uint8Array>
+): Promise<Buffer> {
+  const reader = stream.getReader();
+  const chunks: Uint8Array[] = [];
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) {
+      break;
+    }
+    if (value) {
+      chunks.push(value);
+    }
+  }
+
+  if (chunks.length === 0) {
+    return Buffer.alloc(0);
+  }
+
+  if (chunks.length === 1) {
+    return Buffer.from(chunks[0]);
+  }
+
+  const totalLength = chunks.reduce((sum, chunk) => sum + chunk.byteLength, 0);
+  const buffer = Buffer.allocUnsafe(totalLength);
+  let offset = 0;
+
+  for (const chunk of chunks) {
+    buffer.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+
+  return buffer;
+}
+
+async function saveBufferToFile(
+  buffer: Buffer,
+  voiceId: string
+): Promise<string | null> {
+  if (!buffer?.length) {
+    return null;
+  }
+
+  try {
+    await ensureAudioOutputDir();
+    const filePath = buildAudioFilePath(voiceId);
+    await fs.writeFile(filePath, buffer);
+    console.info("[ElevenLabs] Saved narration to", filePath);
+    return filePath;
+  } catch (error) {
+    console.warn("[ElevenLabs] Failed to persist narration audio", error);
+    return null;
+  }
+}
+
+async function saveStreamToFile(
+  stream: ReadableStream<Uint8Array>,
+  voiceId: string
+): Promise<string | null> {
+  try {
+    const buffer = await streamToBuffer(stream);
+    return await saveBufferToFile(buffer, voiceId);
+  } catch (error) {
+    console.warn("[ElevenLabs] Failed to capture streaming narration", error);
+    return null;
+  }
+}
 
 if (!ELEVENLABS_API_KEY) {
   console.warn(
@@ -102,7 +207,10 @@ async function requestElevenLabsStream({
   style,
   useSpeakerBoost,
   speed,
-}: ElevenLabsNarrationRequest) {
+}: ElevenLabsNarrationRequest): Promise<{
+  response: Response;
+  resolvedVoiceId: string;
+}> {
   if (!ELEVENLABS_API_KEY) {
     throw new Error(
       "Missing ELEVENLABS_API_KEY. Cannot generate audio with ElevenLabs."
@@ -146,7 +254,7 @@ async function requestElevenLabsStream({
     throw new Error("ElevenLabs response did not include a stream body.");
   }
 
-  return response;
+  return { response, resolvedVoiceId };
 }
 
 /**
@@ -165,7 +273,7 @@ export async function narrateWithElevenLabs({
   speed,
 }: ElevenLabsNarrationRequest): Promise<Buffer> {
   try {
-    const response = await requestElevenLabsStream({
+    const { response, resolvedVoiceId } = await requestElevenLabsStream({
       text,
       voiceId,
       modelId,
@@ -182,32 +290,12 @@ export async function narrateWithElevenLabs({
     if (!stream) {
       throw new Error("ElevenLabs response did not include a stream body.");
     }
+    const buffer = await streamToBuffer(stream);
+    const savedFilePath = await saveBufferToFile(buffer, resolvedVoiceId);
 
-    const reader = stream.getReader();
-    const chunks: Uint8Array[] = [];
-
-    while (true) {
-      const { done, value } = await reader.read();
-
-      if (done) {
-        break;
-      }
-
-      if (value) {
-        chunks.push(value);
-      }
-    }
-
-    const totalLength = chunks.reduce(
-      (sum, chunk) => sum + chunk.byteLength,
-      0
-    );
-    const buffer = Buffer.allocUnsafe(totalLength);
-    let offset = 0;
-
-    for (const chunk of chunks) {
-      buffer.set(chunk, offset);
-      offset += chunk.byteLength;
+    if (savedFilePath) {
+      (buffer as Buffer & { savedFilePath?: string }).savedFilePath =
+        savedFilePath;
     }
 
     return buffer;
@@ -231,7 +319,7 @@ export async function streamNarrationWithElevenLabs({
   speed,
 }: ElevenLabsNarrationRequest): Promise<ReadableStream<Uint8Array>> {
   try {
-    const response = await requestElevenLabsStream({
+    const { response, resolvedVoiceId } = await requestElevenLabsStream({
       text,
       voiceId,
       modelId,
@@ -249,7 +337,18 @@ export async function streamNarrationWithElevenLabs({
       throw new Error("ElevenLabs response did not include a stream body.");
     }
 
-    return stream;
+    const [clientStream, fileStream] = stream.tee();
+
+    void saveStreamToFile(fileStream, resolvedVoiceId).catch(
+      (error: unknown) => {
+        console.warn(
+          "[ElevenLabs] Unable to persist streaming narration to file",
+          error
+        );
+      }
+    );
+
+    return clientStream;
   } catch (error) {
     console.error("Failed to stream audio with ElevenLabs:", error);
     throw new Error(
