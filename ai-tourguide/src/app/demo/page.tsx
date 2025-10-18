@@ -81,6 +81,8 @@ type DemoNarrationRequestPayload = {
   voiceId?: string;
 };
 
+type StatusState = "waiting" | "listening" | "thinking" | "answering" | "error";
+
 async function playAudioFromDataUrl(dataUrl: string): Promise<void> {
   if (typeof window === "undefined") {
     return;
@@ -134,6 +136,7 @@ export default function DemoSplashPage() {
   const [conversationSessionId, setConversationSessionId] = useState<
     string | null
   >(null);
+  const [statusState, setStatusState] = useState<StatusState>("waiting");
 
   // Image upload state
   const [isUploadingImage, setIsUploadingImage] = useState<boolean>(false);
@@ -166,6 +169,12 @@ export default function DemoSplashPage() {
   useEffect(() => {
     conversationSessionIdRef.current = conversationSessionId;
   }, [conversationSessionId]);
+
+  useEffect(() => {
+    if (micError) {
+      setStatusState("error");
+    }
+  }, [micError]);
 
   const listenToUser = useCallback(
     async (initialTranscript: string): Promise<string | null> => {
@@ -284,6 +293,7 @@ export default function DemoSplashPage() {
               ? `Speech recognition error: ${event.error}`
               : "Microphone listening error occurred."
           );
+          setStatusState("error");
           finish();
         };
 
@@ -336,6 +346,7 @@ export default function DemoSplashPage() {
           strippedText: string,
           wakeWordUsed: boolean
         ) => {
+          setStatusState("thinking");
           const agentResponse = await answerUserQuestion({
             sessionId: conversationSessionIdRef.current,
             text: rawText,
@@ -354,16 +365,25 @@ export default function DemoSplashPage() {
           }
 
           if (agentResponse.reply) {
+            setStatusState("answering");
             await narrateToUser(agentResponse.reply);
+          }
+
+          if (agentResponse.ended) {
+            setStatusState("waiting");
+          } else {
+            setStatusState("listening");
           }
 
           return agentResponse;
         };
 
+        setStatusState("listening");
         const capturedSpeech = await listenToUser(detection.stripped ?? "");
         const trimmedSpeech = capturedSpeech?.replace(/\s+/g, " ").trim();
 
         if (!trimmedSpeech) {
+          setStatusState("waiting");
           return;
         }
 
@@ -384,6 +404,7 @@ export default function DemoSplashPage() {
         }
 
         while (true) {
+          setStatusState("listening");
           const followUpRaw = await listenToUser("");
           const followUp = followUpRaw?.replace(/\s+/g, " ").trim();
 
@@ -404,11 +425,13 @@ export default function DemoSplashPage() {
             ? error.message
             : "Unable to process your request right now."
         );
+        setStatusState("error");
       } finally {
         wakeWordPausedRef.current = false;
         isHandlingWakeWordRef.current = false;
         wakeWordActiveRef.current = false;
         setIsWakeWordActive(false);
+        setStatusState("waiting");
 
         if (recognitionRef.current) {
           try {
@@ -448,11 +471,13 @@ export default function DemoSplashPage() {
 
       setIsNarrating(true);
       setMicError(null);
+      setStatusState("thinking");
 
       const resumeWakeWordListening = () => {
         wakeWordPausedRef.current = false;
         wakeWordActiveRef.current = false;
         setIsWakeWordActive(false);
+        setStatusState("waiting");
 
         if (recognitionRef.current) {
           try {
@@ -501,6 +526,7 @@ export default function DemoSplashPage() {
               voiceId: voiceToUse,
             });
 
+            setStatusState("answering");
             await playAudioFromDataUrl(audioDataUrl);
             audioPlayed = true;
           }
@@ -509,10 +535,12 @@ export default function DemoSplashPage() {
         }
 
         if (!audioPlayed) {
+          setStatusState("answering");
           await narrateToUser(story);
         }
       } catch (untypedError) {
         console.error("AI narration failed", untypedError);
+        setStatusState("thinking");
 
         const fallbackStory = generateStorytellingForPlaceOfInterest(
           userPreferences,
@@ -528,6 +556,7 @@ export default function DemoSplashPage() {
               voiceId: voiceToUse,
             });
 
+            setStatusState("answering");
             await playAudioFromDataUrl(fallbackAudioDataUrl);
             audioPlayed = true;
           }
@@ -536,6 +565,7 @@ export default function DemoSplashPage() {
         }
 
         if (!audioPlayed) {
+          setStatusState("answering");
           await narrateToUser(fallbackStory);
         }
       } finally {
@@ -720,6 +750,7 @@ export default function DemoSplashPage() {
           if (detection.matched && !wakeWordActiveRef.current) {
             wakeWordActiveRef.current = true;
             setIsWakeWordActive(true);
+            setStatusState("listening");
             void handleWakeWordMatch(detection);
           }
 
@@ -739,6 +770,7 @@ export default function DemoSplashPage() {
             wakeWordActiveRef.current = false;
             setIsWakeWordActive(false);
             setVolumeLevel(0);
+            setStatusState("error");
           }
         };
 
@@ -783,6 +815,7 @@ export default function DemoSplashPage() {
             recognitionStarted = true;
             setMicError(null);
             setIsMicListening(true);
+            setStatusState("waiting");
             break;
           } catch (startError) {
             lastStartError = startError;
@@ -1094,24 +1127,27 @@ export default function DemoSplashPage() {
     }
   };
 
-  const rawIntensity = isWakeWordActive ? Math.max(volumeLevel - 0.02, 0) : 0;
+  const listeningIntensity = Math.max(volumeLevel - 0.02, 0);
+  const rawIntensity =
+    statusState === "answering"
+      ? Math.max(0.4, listeningIntensity)
+      : statusState === "listening"
+      ? listeningIntensity
+      : 0;
   const pulseIntensity = Math.min(1, rawIntensity * 1.55);
-  const haloScale = isWakeWordActive ? 0.92 + pulseIntensity * 0.95 : 0.9;
-  const haloOpacity = isWakeWordActive
+  const isActiveHalo =
+    statusState === "listening" || statusState === "answering";
+  const haloScale = isActiveHalo ? 0.92 + pulseIntensity * 0.95 : 0.9;
+  const haloOpacity = isActiveHalo
     ? Math.min(0.92, 0.2 + pulseIntensity * 0.42)
     : 0.08;
-  const ringScale = isWakeWordActive ? 1 + pulseIntensity * 0.28 : 1;
-  const ringShadow = isWakeWordActive
-    ? `0 0 0 ${12 + pulseIntensity * 29}px rgba(16, 185, 129, ${
-        0.05 + pulseIntensity * 0.32
-      })`
-    : undefined;
-  const badgeScale = isWakeWordActive ? 1 + pulseIntensity * 0.1 : 1;
-  const waveformOpacity = isWakeWordActive
+  const ringScale = isActiveHalo ? 1 + pulseIntensity * 0.28 : 1;
+  const badgeScale = isActiveHalo ? 1 + pulseIntensity * 0.1 : 1;
+  const waveformOpacity = isActiveHalo
     ? Math.min(0.85, 0.22 + pulseIntensity * 0.55)
     : 0.12;
   const waveformStrokeWidth = 1 + pulseIntensity * 1.7;
-  const waveformScale = isWakeWordActive ? 0.88 + pulseIntensity * 0.1 : 0.88;
+  const waveformScale = isActiveHalo ? 0.88 + pulseIntensity * 0.1 : 0.88;
 
   const waveformPath = useMemo(() => {
     if (!waveformPoints.length) {
@@ -1130,11 +1166,76 @@ export default function DemoSplashPage() {
       .join(" ");
   }, [waveformPoints]);
 
-  const statusLabel = micError
-    ? "Waiting"
-    : isWakeWordActive
-    ? "Listening"
-    : "Waiting";
+  const statusLabel =
+    statusState === "error"
+      ? "Error"
+      : statusState === "answering"
+      ? "Answering"
+      : statusState === "thinking"
+      ? "Thinking"
+      : statusState === "listening"
+      ? "Listening"
+      : "Waiting";
+
+  const stateColors = {
+    waiting: {
+      ring: "border-slate-800",
+      halo: "bg-slate-800/20",
+      badge: "bg-slate-900 text-slate-500",
+      glow: "148, 163, 184",
+    },
+    listening: {
+      ring: "border-emerald-400/80",
+      halo: "bg-emerald-400/20",
+      badge: "bg-emerald-400 text-emerald-950",
+      glow: "16, 185, 129",
+    },
+    thinking: {
+      ring: "border-amber-300/70",
+      halo: "bg-amber-300/25",
+      badge: "bg-amber-400 text-amber-950",
+      glow: "245, 158, 11",
+    },
+    answering: {
+      ring: "border-sky-300/80",
+      halo: "bg-sky-300/20",
+      badge: "bg-sky-400 text-sky-950",
+      glow: "56, 189, 248",
+    },
+    error: {
+      ring: "border-rose-400/80",
+      halo: "bg-rose-400/20",
+      badge: "bg-rose-500 text-rose-950",
+      glow: "244, 63, 94",
+    },
+  } as const;
+
+  type VisualStateKey = keyof typeof stateColors;
+
+  const resolvedState: VisualStateKey =
+    statusState === "listening"
+      ? "listening"
+      : statusState === "thinking"
+      ? "thinking"
+      : statusState === "answering"
+      ? "answering"
+      : statusState === "error"
+      ? "error"
+      : "waiting";
+
+  const palette = stateColors[resolvedState];
+  const ringToneClass = palette.ring;
+  const haloToneClass = palette.halo;
+  const badgeToneClass =
+    resolvedState === "waiting" && isMicListening
+      ? "bg-slate-800 text-slate-200"
+      : palette.badge;
+  const glowRgb = palette.glow;
+  const ringShadow = isActiveHalo
+    ? `0 0 0 ${12 + pulseIntensity * 29}px rgba(${glowRgb}, ${
+        0.05 + pulseIntensity * 0.32
+      })`
+    : undefined;
 
   return (
     <div className="flex min-h-screen flex-col items-center justify-center gap-10 bg-slate-950 px-6 text-center text-slate-100">
@@ -1154,7 +1255,7 @@ export default function DemoSplashPage() {
       <div className="flex flex-col items-center gap-6">
         <div className="relative flex h-48 w-48 items-center justify-center sm:h-56 sm:w-56">
           <span
-            className="absolute inset-0 rounded-full bg-emerald-400/20 transition-all duration-150 ease-out"
+            className={`absolute inset-0 rounded-full transition-all duration-150 ease-out ${haloToneClass}`}
             style={{
               transform: `scale(${haloScale})`,
               opacity: haloOpacity,
@@ -1162,9 +1263,7 @@ export default function DemoSplashPage() {
             aria-hidden="true"
           />
           <span
-            className={`absolute inset-6 rounded-full border transition-all duration-150 ease-out sm:inset-8 ${
-              isWakeWordActive ? "border-emerald-400/80" : "border-slate-800"
-            }`}
+            className={`absolute inset-6 rounded-full border transition-all duration-150 ease-out sm:inset-8 ${ringToneClass}`}
             style={{
               transform: `scale(${ringScale})`,
               boxShadow: ringShadow,
@@ -1204,15 +1303,7 @@ export default function DemoSplashPage() {
             />
           </svg>
           <span
-            className={`relative z-10 flex h-16 w-16 items-center justify-center rounded-full text-[11px] font-semibold uppercase tracking-[0.28em] transition-transform duration-150 ease-out sm:h-18 sm:w-18 ${
-              micError
-                ? "bg-rose-500 text-rose-950"
-                : isWakeWordActive
-                ? "bg-emerald-400 text-emerald-950"
-                : isMicListening
-                ? "bg-slate-800 text-slate-200"
-                : "bg-slate-900 text-slate-500"
-            }`}
+            className={`relative z-10 flex h-16 w-16 items-center justify-center rounded-full px-2 text-[10px] font-semibold uppercase tracking-[0.16em] transition-transform duration-150 ease-out sm:h-18 sm:w-18 sm:text-[11px] ${badgeToneClass}`}
             style={{
               transform: `scale(${badgeScale})`,
             }}
