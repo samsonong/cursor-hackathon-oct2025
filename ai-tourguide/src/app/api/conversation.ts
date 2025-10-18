@@ -2,14 +2,14 @@
 import {
   SESSIONS,
   MAX_TURNS,
-  detectAndStripWakeWord,
   expiresAt,
   getSession,
   iso,
   isExpired,
   now,
   type Msg,
-} from "../../lib/conversation";
+} from "@/lib/conversation";
+import { detectAndStripWakeWord } from "@/lib/wake-word";
 import { TourGuideAgent } from "@/lib/tour-agent";
 
 export const runtime = "nodejs";
@@ -17,13 +17,22 @@ export const runtime = "nodejs";
 export async function POST(req: Request) {
   try {
     const body = await req.json().catch(() => ({}));
-    const text = (body?.text ?? "").toString().trim();
+    const rawText = body?.text;
+    const text =
+      rawText === undefined || rawText === null ? "" : String(rawText);
+    const trimmedText = text.trim();
+    const strippedFromClient =
+      typeof body?.strippedText === "string" ? body.strippedText.trim() : "";
+    const wakeWordOverride =
+      typeof body?.wakeWord === "string" && body.wakeWord.trim()
+        ? body.wakeWord.trim()
+        : undefined;
     const placeName = body?.placeName ? String(body.placeName) : undefined;
     const lat = typeof body?.lat === "number" ? body.lat : undefined;
     const lng = typeof body?.lng === "number" ? body.lng : undefined;
     const providedSessionId = body?.sessionId ? String(body.sessionId) : null;
 
-    if (!text) {
+    if (!trimmedText && !strippedFromClient) {
       return Response.json({ error: "Missing 'text'." }, { status: 400 });
     }
 
@@ -53,11 +62,26 @@ export async function POST(req: Request) {
 
     // First turn → detect & strip wake word (non-strict if missing)
     let detectedWakeWord = false;
-    let userText = text;
+    let userText = strippedFromClient || trimmedText;
     if (session.turns === 0) {
-      const res = detectAndStripWakeWord(text);
-      detectedWakeWord = res.matched;
-      userText = res.stripped || text;
+      const hasClientWakeFlag =
+        body && Object.prototype.hasOwnProperty.call(body, "wakeWordDetected");
+      if (hasClientWakeFlag) {
+        detectedWakeWord = Boolean(body.wakeWordDetected);
+        if (detectedWakeWord) {
+          if (!strippedFromClient) {
+            const res = detectAndStripWakeWord(trimmedText, wakeWordOverride);
+            detectedWakeWord = res.matched;
+            userText = res.stripped || trimmedText;
+          }
+        } else {
+          userText = strippedFromClient || trimmedText;
+        }
+      } else {
+        const res = detectAndStripWakeWord(trimmedText, wakeWordOverride);
+        detectedWakeWord = res.matched;
+        userText = res.stripped || trimmedText;
+      }
     }
 
     const requestedLang =

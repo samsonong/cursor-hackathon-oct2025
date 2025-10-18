@@ -41,19 +41,6 @@ export function expiresAt(session: Session) {
   return session.lastSeenAt + IDLE_MS;
 }
 
-export function detectAndStripWakeWord(text: string, wakeWord = "hey wei jie") {
-  const norm = text.trim();
-  const pattern = new RegExp(
-    "^\\s*" + wakeWord.split(/\s+/).join("\\s*") + "[\\s,.:;-]*",
-    "i"
-  );
-  const matched = pattern.test(norm);
-  return {
-    matched,
-    stripped: matched ? norm.replace(pattern, "").trim() : norm,
-  };
-}
-
 export function buildSystemPrompt(opts: {
   placeName?: string;
   lat?: number;
