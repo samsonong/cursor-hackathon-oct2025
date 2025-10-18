@@ -1,0 +1,67 @@
+{
+  "meta": {
+    "version": "2025-03-01",
+    "scope": "Jewel Changi Airport curated highlights",
+    "notes": "Static in-repo knowledge base; expand with new entries as needed."
+  },
+  "entries": [
+    {
+      "id": "jewel_overview",
+      "name": "Jewel Changi Airport",
+      "summary": "Nature-themed lifestyle complex connecting all Changi Airport terminals.",
+      "details": "Jewel spans 10 stories around a central garden. It blends retail, dining, attractions, and aviation services. The indoor Forest Valley creates a lush walking trail while the top levels host Canopy Park experiences.",
+      "tags": ["overview", "orientation", "architecture"],
+      "location": { "lat": 1.3592, "lng": 103.9894 },
+      "sources": [
+        { "type": "official", "note": "Based on Changi Airport Group descriptions." }
+      ]
+    },
+    {
+      "id": "rain_vortex",
+      "name": "HSBC Rain Vortex",
+      "summary": "40-meter indoor waterfall and the icon of Jewel's Forest Valley.",
+      "details": "Water cascades from the skylight through seven levels to the basement garden. Nightly light-and-sound shows typically run every hour from early evening. Mist and lighting schedules can change for events or maintenance.",
+      "tags": ["attraction", "rain vortex", "forest valley"],
+      "location": {
+        "lat": 1.3594,
+        "lng": 103.9892,
+        "level": "Central Forest Valley"
+      },
+      "sources": [
+        { "type": "official", "note": "Adapted from Jewel attraction guides." },
+        { "type": "anecdotal", "note": "Visitor observations on show timing variability." }
+      ]
+    },
+    {
+      "id": "canopy_park",
+      "name": "Canopy Park",
+      "summary": "Top-level play attractions such as Sky Nets, Discovery Slides, and Foggy Bowls.",
+      "details": "Tickets are required for most play areas. Operating hours usually mirror Jewel's retail hours, but individual attractions may close for safety checks. Bundled passes let guests mix multiple experiences; check onsite boards for current pricing.",
+      "tags": ["attraction", "family", "tickets"],
+      "location": { "lat": 1.3595, "lng": 103.9895, "level": "Level 5" },
+      "sources": [
+        { "type": "official", "note": "Jewel ticketing information (pricing varies)." }
+      ]
+    },
+    {
+      "id": "dining_shiseido_forest_valley",
+      "name": "Dining in Shiseido Forest Valley",
+      "summary": "Casual cafes and grab-and-go spots tucked among the greenery.",
+      "details": "Expect quick-service cafes with flexible menus. Seasonal pop-ups appear during travel peaks. Table availability shifts throughout the day, so mid-afternoon is usually quieter.",
+      "tags": ["dining", "forest valley", "tips"],
+      "sources": [
+        { "type": "observational", "note": "Compiled from local visit notes, availability may vary." }
+      ]
+    },
+    {
+      "id": "transport_links",
+      "name": "Airport Transport Links",
+      "summary": "Jewel connects to Terminals 1, 2, and 3 via pedestrian bridges and shuttles.",
+      "details": "The Arrival Hall link bridges on Level 2 offer the quickest walk to Terminals 1 and 2. For Terminal 4, use the shuttle bus from Terminal 2. Allow extra time during peak departure banks.",
+      "tags": ["transport", "access", "tips"],
+      "sources": [
+        { "type": "official", "note": "Airport advisories; schedules subject to change." }
+      ]
+    }
+  ]
+}
