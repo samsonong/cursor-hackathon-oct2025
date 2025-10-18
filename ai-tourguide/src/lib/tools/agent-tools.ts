@@ -144,19 +144,26 @@ function buildKnowledgeContext(matches: KnowledgeMatch[]) {
 }
 
 // Tool that searches the curated knowledge index and records the lookup trace.
+const KNOWLEDGE_LOOKUP_PARAMETERS = z
+  .object({
+    query: z.string().min(1).max(MAX_QUERY_LENGTH),
+    limit: z.number().int().min(1).max(5).optional().nullable(),
+    minimumScore: z.number().int().min(0).max(10).optional().nullable(),
+  })
+  .strict();
+
+type KnowledgeLookupInput = z.infer<typeof KNOWLEDGE_LOOKUP_PARAMETERS>;
+
 export const knowledgeLookupTool = tool({
   name: "lookup_local_knowledge",
   description:
     "Search the curated Jewel Changi Airport knowledge base for relevant entries. Use this before considering a web search.",
-  parameters: z
-    .object({
-      query: z.string().min(1).max(MAX_QUERY_LENGTH),
-      limit: z.number().int().min(1).max(5).optional(),
-      minimumScore: z.number().int().min(0).max(10).optional(),
-    })
-    .strict(),
+  parameters: KNOWLEDGE_LOOKUP_PARAMETERS,
   strict: true,
-  execute: async (input, runCtx): Promise<string> => {
+  execute: async (
+    input: KnowledgeLookupInput,
+    runCtx
+  ): Promise<string> => {
     const limit = input.limit ?? 3;
     const context = runCtx?.context as TourAgentContext | undefined;
     const minimumScore =
