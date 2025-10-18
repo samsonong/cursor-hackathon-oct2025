@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 
 import { narratePointOfInterestAction } from "@/app/actions/narrate-point-of-interest";
+import { narrateWithElevenLabsAction } from "@/app/actions/narrate-with-elevenlabs";
 import { userPreferences } from "@/data/user-preferences";
 import {
   changiJewelKnowledgeBase,
@@ -40,6 +41,40 @@ function formatTimestamp(timestamp: number | null): string {
   }
 
   return new Date(timestamp).toLocaleTimeString();
+}
+
+async function playAudioFromDataUrl(dataUrl: string): Promise<void> {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  const audio = new Audio(dataUrl);
+
+  await new Promise<void>((resolve, reject) => {
+    const handleError = (event: Event) => {
+      audio.removeEventListener("ended", handleEnded);
+      audio.removeEventListener("error", handleError);
+      reject(new Error(`Audio playback failed: ${event.type}`));
+    };
+
+    const handleEnded = () => {
+      audio.removeEventListener("ended", handleEnded);
+      audio.removeEventListener("error", handleError);
+      resolve();
+    };
+
+    audio.addEventListener("ended", handleEnded, { once: true });
+    audio.addEventListener("error", handleError, { once: true });
+
+    const playPromise = audio.play();
+
+    if (playPromise && typeof playPromise.catch === "function") {
+      playPromise.catch((error) => {
+        audio.pause();
+        reject(error);
+      });
+    }
+  });
 }
 
 export default function StorytellerPage() {
@@ -117,7 +152,23 @@ export default function StorytellerPage() {
       });
 
       recordNarration(story, selectedPoi);
-      await narrateToUser(story);
+
+      let audioPlayed = false;
+
+      try {
+        const audioDataUrl = await narrateWithElevenLabsAction({
+          text: story,
+        });
+
+        await playAudioFromDataUrl(audioDataUrl);
+        audioPlayed = true;
+      } catch (audioError) {
+        console.error("ElevenLabs narration failed", audioError);
+      }
+
+      if (!audioPlayed) {
+        await narrateToUser(story);
+      }
     } catch (untypedError) {
       console.error("AI narration failed", untypedError);
 
@@ -134,7 +185,23 @@ export default function StorytellerPage() {
           : "AI narrator unavailable. Showing template narration instead.";
 
       setError(message);
-      await narrateToUser(fallbackStory);
+
+      let audioPlayed = false;
+
+      try {
+        const fallbackAudioDataUrl = await narrateWithElevenLabsAction({
+          text: fallbackStory,
+        });
+
+        await playAudioFromDataUrl(fallbackAudioDataUrl);
+        audioPlayed = true;
+      } catch (audioError) {
+        console.error("ElevenLabs fallback narration failed", audioError);
+      }
+
+      if (!audioPlayed) {
+        await narrateToUser(fallbackStory);
+      }
     } finally {
       setIsNarrating(false);
     }
