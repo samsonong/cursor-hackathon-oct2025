@@ -1,7 +1,6 @@
 import { Agent, run, setDefaultOpenAIKey, tool } from "@openai/agents";
 import { z } from "zod";
 import knowledgeIndex from "@/data/changi-jewel/index.json";
-import cacheData from "@/data/changi-jewel/cache.json";
 
 export type KnowledgeSource = {
   type: string;
@@ -42,37 +41,19 @@ export type KnowledgeLookupTrace = {
   limit: number;
   minimumScore: number;
   matches: KnowledgeMatch[];
-  fromCache?: boolean;
-};
-
-export type CachedResponse = {
-  query: string;
-  normalizedQuery: string;
-  response: string;
-  knowledgeReferences: string[];
-  cachedAt: string;
-};
-
-export type CacheData = {
-  meta: {
-    version: string;
-    description: string;
-    lastUpdated: string;
-  };
-  cachedResponses: CachedResponse[];
 };
 
 export type TourAgentContext = {
   placeName?: string;
   lang?: string;
   minimumKnowledgeScore?: number;
+  preferWebSearch?: boolean;
   runTrace: {
     knowledgeLookups: KnowledgeLookupTrace[];
   };
 };
 
 const KNOWLEDGE: KnowledgeIndexFile = knowledgeIndex;
-const CACHE: CacheData = cacheData;
 
 export const MAX_QUERY_LENGTH = 3000;
 
@@ -104,43 +85,6 @@ function ensureKnowledgeDigestAgent(): Agent {
 const TOKENIZE_REGEX = /[^a-z0-9\s]+/g;
 const WHITESPACE_REGEX = /\s+/;
 
-function normalizeQuery(query: string): string {
-  return query
-    .toLowerCase()
-    .replace(/[^a-z0-9\s]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function findCachedResponse(query: string): CachedResponse | null {
-  const normalizedQuery = normalizeQuery(query);
-
-  // Fast exact match first - this is O(n) and very fast
-  for (const cached of CACHE.cachedResponses) {
-    if (cached.normalizedQuery === normalizedQuery) {
-      return cached;
-    }
-  }
-
-  // For partial matching, only check if query is reasonably short
-  // and use simple keyword matching for speed
-  if (normalizedQuery.length <= 30) {
-    const queryWords = normalizedQuery.split(" ").filter(Boolean);
-
-    // Quick keyword-based matching - much faster than complex fuzzy matching
-    for (const cached of CACHE.cachedResponses) {
-      // Check if any significant words from query appear in cached query
-      for (const word of queryWords) {
-        if (word.length >= 3 && cached.normalizedQuery.includes(word)) {
-          return cached;
-        }
-      }
-    }
-  }
-
-  return null;
-}
-
 function tokenize(text: string): string[] {
   // Single pass: lowercase, clean, and split
   const cleaned = text.toLowerCase().replace(TOKENIZE_REGEX, " ");
@@ -164,14 +108,8 @@ function scoreEntry(
   entry: KnowledgeEntry,
   queryTokens: string[]
 ): KnowledgeMatch | null {
-  // Pre-compute searchable text once
-  const searchableText = `${entry.name} ${entry.summary || ""} ${
-    entry.details || ""
-  } ${entry.tags?.join(" ") || ""}`.toLowerCase();
-
   let score = 0;
   let exactMatches = 0;
-  let partialMatches = 0;
 
   // More sophisticated scoring with different weights
   for (const token of queryTokens) {
@@ -183,17 +121,14 @@ function scoreEntry(
     // Matches in summary get medium weight
     else if (entry.summary?.toLowerCase().includes(token)) {
       score += 2;
-      partialMatches++;
     }
     // Matches in details get lower weight
     else if (entry.details?.toLowerCase().includes(token)) {
       score += 1;
-      partialMatches++;
     }
     // Tag matches get medium weight
     else if (entry.tags?.some((tag) => tag.toLowerCase().includes(token))) {
       score += 2;
-      partialMatches++;
     }
   }
 
@@ -367,32 +302,8 @@ export const knowledgeLookupTool = tool({
     const minimumScore =
       input.minimumScore ?? context?.minimumKnowledgeScore ?? 1;
 
-    // Check cache first for fast response
-    const cachedResponse = findCachedResponse(input.query);
-    if (cachedResponse) {
-      console.info("[TourGuideAgent] cache hit", {
-        query: input.query,
-        cachedQuery: cachedResponse.query,
-        fromCache: true,
-      });
-
-      // Update trace if context exists
-      if (context?.runTrace) {
-        context.runTrace.knowledgeLookups.push({
-          query: input.query,
-          limit,
-          minimumScore,
-          matches: [], // No matches needed for cached response
-          fromCache: true,
-        });
-      }
-
-      return `[Cached Response] ${cachedResponse.response}`;
-    }
-
-    console.info("[TourGuideAgent] cache miss, searching knowledge index", {
+    console.info("[TourGuideAgent] searching knowledge index", {
       query: input.query,
-      fromCache: false,
     });
 
     // Get more matches initially to filter by score, then limit
@@ -408,7 +319,6 @@ export const knowledgeLookupTool = tool({
         limit,
         minimumScore,
         matches,
-        fromCache: false,
       });
     }
 

@@ -264,7 +264,7 @@ export class TourGuideAgent {
     setDefaultOpenAIKey(apiKey);
     this.model = opts?.model ?? process.env.GUIDE_MODEL ?? "gpt-4o-mini";
     this.historyStore = new ConversationHistoryStore();
-    this.agent = new Agent<TourAgentContext>({
+    this.agent = new Agent({
       name: "Wei Jie Tour Companion",
       model: this.model,
       instructions: (runCtx: { context?: TourAgentContext }) =>
@@ -334,25 +334,42 @@ export class TourGuideAgent {
           .join("\n\n")
       : "No past conversations recorded yet.";
 
-    const raw = await fs.readFile(
-      resolve(process.cwd(), "data/conversation-history.json"),
-      "utf-8"
-    );
-    const parsed = JSON.parse(raw);
-    const images = parsed?.["image-analysis"];
+    const imageAnalysisDetails: string[] = [];
+    try {
+      const raw = await fs.readFile(
+        resolve(process.cwd(), "data/conversation-history.json"),
+        "utf-8"
+      );
+      const parsed = JSON.parse(raw);
+      const images = parsed?.["image-analysis"];
 
-    // Parse items with format "image-analysis:[details]" into an array of details
-    const imageAnalysisDetails = [];
-    console.log("parsed", parsed);
-    if (Array.isArray(images)) {
-      for (const item of images) {
-        if (item.assistant) {
-          imageAnalysisDetails.push(item.assistant);
+      // Parse items with format "image-analysis:[details]" into an array of details
+      console.log("parsed", parsed);
+      if (Array.isArray(images)) {
+        for (const item of images) {
+          if (item?.assistant) {
+            imageAnalysisDetails.push(item.assistant);
+          }
         }
+      }
+
+      console.log(imageAnalysisDetails);
+    } catch (error) {
+      const err = error as NodeJS.ErrnoException;
+      if (err?.code === "ENOENT") {
+        console.info(
+          "[TourGuideAgent] conversation history file not found; skipping image analysis context"
+        );
+      } else {
+        console.warn(
+          "[TourGuideAgent] failed to load image analysis context from history",
+          {
+            error,
+          }
+        );
       }
     }
 
-    console.log(imageAnalysisDetails);
     const imageAnalysisContext = imageAnalysisDetails
       .map((detail, index) => `Image Analysis ${index + 1}: ${detail}`)
       .join("\n\n");
@@ -635,8 +652,9 @@ export class TourGuideAgent {
   private shouldFallbackToWebSearch(
     query: string,
     response: AgentResponse,
-    runTrace: AgentRunTrace
+    _runTrace: AgentRunTrace
   ): boolean {
+    void _runTrace;
     const answer = response.answer?.trim();
     if (!answer) {
       return true;
