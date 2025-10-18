@@ -54,7 +54,7 @@ export async function POST(req: Request) {
     const detectedWakeWord =
       typeof body?.wakeWordDetected === "boolean"
         ? body.wakeWordDetected
-        : session.turns > 0;
+        : session.turns === 0; // First turn requires wake word
     const userText = strippedFromClient || trimmedText;
 
     const requestedLang =

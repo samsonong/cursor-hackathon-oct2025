@@ -112,6 +112,7 @@ export default function ConversationPage() {
   const lastSpeechAtRef = useRef<number>(0);
   const voiceTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const isVoiceActiveRef = useRef<boolean>(false);
+  const currentVoiceTranscriptRef = useRef<string>("");
 
   // Voice listening timeout (3 seconds of silence)
   const VOICE_SILENCE_TIMEOUT = 1500;
@@ -330,6 +331,7 @@ export default function ConversationPage() {
 
       setIsProcessingVoice(true);
       setVoiceTranscript("");
+      currentVoiceTranscriptRef.current = "";
       setIsVoiceActive(false);
       isVoiceActiveRef.current = false;
 
@@ -399,12 +401,15 @@ export default function ConversationPage() {
 
         // Update voice transcript for display
         setVoiceTranscript(combined);
+        currentVoiceTranscriptRef.current = combined;
 
         // Check for wake word detection
         if (detection.matched && !isVoiceActiveRef.current) {
           isVoiceActiveRef.current = true;
           setIsVoiceActive(true);
-          setVoiceTranscript(detection.stripped || combined);
+          const strippedText = detection.stripped || combined;
+          setVoiceTranscript(strippedText);
+          currentVoiceTranscriptRef.current = strippedText;
         }
 
         // Track speech activity
@@ -418,8 +423,20 @@ export default function ConversationPage() {
 
           // Set new timeout for silence detection
           voiceTimeoutRef.current = setTimeout(() => {
-            if (isVoiceActiveRef.current && voiceTranscript.trim()) {
-              void processVoiceTranscript(voiceTranscript);
+            console.log("Voice timeout triggered:", {
+              isVoiceActive: isVoiceActiveRef.current,
+              transcript: currentVoiceTranscriptRef.current,
+              hasContent: currentVoiceTranscriptRef.current.trim().length > 0,
+            });
+            if (
+              isVoiceActiveRef.current &&
+              currentVoiceTranscriptRef.current.trim()
+            ) {
+              console.log(
+                "Processing voice transcript:",
+                currentVoiceTranscriptRef.current
+              );
+              void processVoiceTranscript(currentVoiceTranscriptRef.current);
             }
           }, VOICE_SILENCE_TIMEOUT);
         }
@@ -484,6 +501,7 @@ export default function ConversationPage() {
     setIsVoiceActive(false);
     isVoiceActiveRef.current = false;
     setVoiceTranscript("");
+    currentVoiceTranscriptRef.current = "";
     setVoiceError(null);
   }, []);
 
