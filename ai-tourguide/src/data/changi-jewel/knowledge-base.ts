@@ -38,7 +38,7 @@ export const changiJewelKnowledgeBase: ChangiJewelKnowledge = {
     {
       label: "Forest Valley",
       value:
-        "Over 2,000 trees and 100,000 shrubs from 120+ species spanning four cascading terraces",
+        "≈22,000 m² indoor garden staging ~3,000 trees and 60,000 shrubs from 120+ species across four cascading terraces (with nursery rotation pushing total stock above 100,000)",
       category: "Nature",
     },
     {
@@ -75,6 +75,24 @@ export const changiJewelKnowledgeBase: ChangiJewelKnowledge = {
       value:
         "Public precinct 24/7; attractions and most stores 10:00–22:00 daily (seasonal adjustments apply)",
       category: "Operations",
+    },
+    {
+      label: "Average daily footfall",
+      value:
+        "≈300,000 visitors per day during the first six months after opening, supported by 50 million guests in 2019's preview period",
+      category: "Visitation",
+    },
+    {
+      label: "Record annual visitors",
+      value:
+        "Logged over 80 million visitors in 2024 as global travel rebounded",
+      category: "Visitation",
+    },
+    {
+      label: "Canopy Park footprint",
+      value:
+        "≈14,000 m² level-five play zone with mazes, nets, Discovery Slides, and seasonal floral displays",
+      category: "Play",
     },
   ],
   history: [
@@ -122,6 +140,17 @@ export const changiJewelKnowledgeBase: ChangiJewelKnowledge = {
       tags: ["pandemic", "resilience"],
       lastVerified: "2023-03",
     },
+    {
+      title: "Record footfall and programming refresh (2023–2024)",
+      summary:
+        "With global travel resuming, Jewel reactivated headline showcases and set new visitation highs.",
+      bullets: [
+        "Straits Times reporting cited more than 80 million visitors in 2024, the strongest annual footfall since opening.",
+        "Seasonal Moment Factory narratives and IP tie-ins like Pokémon-themed spectacles returned to the Rain Vortex to drive repeat visits.",
+      ],
+      tags: ["visitation", "events"],
+      lastVerified: "2025-01",
+    },
   ],
   developmentPartnership: [
     {
@@ -167,9 +196,11 @@ export const changiJewelKnowledgeBase: ChangiJewelKnowledge = {
       bullets: [
         "The vortex doubles as a performance canvas: programmable LEDs and projection mapping enable hourly light-and-sound shows each evening.",
         "Water collected is reused for irrigation and cooling, aligning spectacle with resource efficiency.",
+        "Variable-speed pumps send up to 37,850 litres per minute through the oculus, cycling roughly 500,000 litres held in the reservoir below.",
+        "Designers tested a one-fifth-scale model and partial full-size prototype to confirm airflow, acoustics, and splash control before installation.",
       ],
       tags: ["water feature", "innovation"],
-      lastVerified: "2023-11",
+      lastVerified: "2025-01",
     },
   ],
   natureAndBiophilia: [
@@ -179,6 +210,7 @@ export const changiJewelKnowledgeBase: ChangiJewelKnowledge = {
         "Four terraced garden zones emulate misty highland forests, featuring plant species from tropical, subtropical, and temperate climates acclimatised to Jewel's microclimate.",
       bullets: [
         "Includes over 120 species of trees such as olive, black olive, and lemon myrtle, alongside ferns, palms, and flowering shrubs.",
+        "Terraces cover roughly 22,000 m² with about 3,000 trees and 60,000 shrubs arranged to mimic misty highland slopes, supplemented by nursery-grown rotation stock.",
         "An integrated misting, irrigation, and soil monitoring network maintains humidity and plant health while providing cooling relief to visitors.",
       ],
       tags: ["horticulture", "microclimate"],
@@ -204,9 +236,11 @@ export const changiJewelKnowledgeBase: ChangiJewelKnowledge = {
       bullets: [
         "Light & Sound show typically runs at hourly intervals from 19:30 to 00:30, with seasonal storylines (e.g., Pokémon, festive themes).",
         "Observation decks at levels 2, 3, and 5 offer varying perspectives, including soundscapes tailored to each deck.",
+        "Acrylic plunge pool funneling dampens splashback and softens the roar, keeping the concourse comfortable even during peak torrents.",
+        "Pump controls alternate between full cascade and thinner veils through the night to moderate humidity and deliver varied choreography to returning guests.",
       ],
       tags: ["icon", "water feature"],
-      lastVerified: "2024-05",
+      lastVerified: "2025-01",
     },
     {
       title: "Changi Experience Studio",
@@ -374,6 +408,17 @@ export const changiJewelKnowledgeBase: ChangiJewelKnowledge = {
       tags: ["tickets", "pricing"],
       lastVerified: "2023-11",
     },
+    {
+      title: "Rain Vortex viewing tips",
+      summary:
+        "Tiered terraces and bridges provide varied sightlines for both landside visitors and transit passengers catching the spectacle on the move.",
+      bullets: [
+        "Level 1 offers the most immersive view beside the plunge pool, while Levels 2–5 in Forest Valley and the glass-floored Canopy Bridge 23 metres up deliver aerial panoramas.",
+        "Passengers staying airside can glimpse the waterfall and roof garden as the Skytrain between Terminals 2 and 3 glides past the oculus, making Jewel visible even without clearing immigration.",
+      ],
+      tags: ["rain vortex", "viewpoints"],
+      lastVerified: "2025-01",
+    },
   ],
   sustainabilityAndInnovation: [
     {
@@ -383,9 +428,10 @@ export const changiJewelKnowledgeBase: ChangiJewelKnowledge = {
       bullets: [
         "Building Management System optimises HVAC loads using sensor-driven data on occupancy, humidity, and weather.",
         "ETFE cushion skylight segments provide insulation while maximising daylight, reducing artificial lighting needs.",
+        "The waterfall doubles as a massive smoke extraction stack during emergencies, drawing air upward through the oculus to support life-safety systems.",
       ],
       tags: ["sustainability", "water"],
-      lastVerified: "2024-02",
+      lastVerified: "2025-01",
     },
     {
       title: "Smart operations",
@@ -445,6 +491,8 @@ export const changiJewelKnowledgeBase: ChangiJewelKnowledge = {
     "The Canopy Park's Foggy Bowls emit cooled mist at roughly 23°C, providing playful relief from Singapore's tropical heat.",
     "Apple's store at Jewel features the brand's first in-airport Boardroom, offering business workshops with views of the Rain Vortex.",
     "Jewel hosted Southeast Asia's first permanent Pokémon Center outside Japan, opening alongside the mall in 2019.",
+    "The Terminal 2–3 Skytrain skirts the oculus, letting transit passengers catch panoramic views of the waterfall without clearing immigration.",
+    "A one-fifth-scale Rain Vortex mock-up was built off-site so engineers could tune splash control, acoustics, and lighting choreography before full assembly.",
   ],
   faqs: [
     {
@@ -486,6 +534,18 @@ export const changiJewelKnowledgeBase: ChangiJewelKnowledge = {
         "Terminal 4 is connected via free shuttle bus from Jewel's Level 1 coach bay. For the city, take the MRT (East-West Line) from Changi Airport station or arrange taxis/private hire vehicles at the Level 1 pick-up points.",
       relatedTopics: ["operationsAndLogistics"],
     },
+    {
+      question: "Where should I watch the Rain Vortex light show?",
+      answer:
+        "Arrive 10 minutes before the 19:30 opener to stake out the railings on Level 5 Canopy Park or the glass-floored Canopy Bridge for elevated views. Forest Valley terraces on Levels 2–4 and the plunge-pool plaza on Level 1 are great if you prefer to stay closer to the mist.",
+      relatedTopics: ["attractionsAndExperiences", "visitorPlanning"],
+    },
+    {
+      question: "Can I see the Rain Vortex if I stay in transit?",
+      answer:
+        "Yes. The Skytrain linking Terminals 2 and 3 runs along Jewel's inner edge, giving airside passengers a sweeping look at the waterfall and gardens without clearing immigration.",
+      relatedTopics: ["operationsAndLogistics", "visitorPlanning"],
+    },
   ],
   references: [
     "Changi Airport Group – Jewel Changi Airport Fact Sheet (2019 update)",
@@ -496,5 +556,10 @@ export const changiJewelKnowledgeBase: ChangiJewelKnowledge = {
     "PWP Landscape Architecture – Shiseido Forest Valley Narrative (2019)",
     "Jewel Changi Airport Official Website – Attractions, Dining, and Events pages (accessed 2024)",
     "Media articles from The Straits Times, Channel NewsAsia, and Architectural Digest covering Jewel milestones (2013–2024)",
+    "The Straits Times – 'Jewel Changi Airport reports record footfall of over 80 million in 2024' (28 Jan 2025)",
+    "CNA Interactive – Inside Jewel Changi Airport (2019)",
+    "The New York Times – 'At Singapore's Changi Airport, a New Jewel Shines' (11 Apr 2019)",
+    "Wired – 'How to Fit the World's Biggest Indoor Waterfall in an Airport' (7 Sep 2016)",
+    "Wikipedia – 'Jewel Changi Airport' (retrieved 14 Sep 2025)",
   ],
 };
