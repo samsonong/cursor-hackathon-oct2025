@@ -93,40 +93,39 @@ export async function narratePointOfInterestWithOpenAI({
   const insiderTips = poi.insiderTips?.join("; ") ?? "";
 
   const extraPersonaNotes = formatPersonaExtras(prepared.extras);
+  const defaultGuidance =
+    "Keep it punchy (around 90 words). Close with two short questions that invite the traveller to keep exploring or share what they feel like hearing next.";
 
   const userContent = `
-Point of interest: ${poi.name}
+POI: ${poi.name}
 Summary: ${poi.summary}
 Highlights: ${highlights}
-Sensory details: ${sensory}
+Sensory cues: ${sensory}
 Suggested duration: ${poi.suggestedDuration}
-Insider tips: ${insiderTips}
-Call to action: ${poi.callToAction ?? "Invite them to explore soon."}
+Insider tips: ${insiderTips || "None"}
+Call to action cue: ${poi.callToAction ?? "Invite them to explore soon."}
 
 Traveller name: ${prepared.travelerName}
-Companions: ${companions || "Solo trip"}
-Interests: ${interests || "General exploration"}
-Preferred tone: ${toneDescriptor}
-Preferred pace: ${paceDescriptor}
-Accessibility notes: ${prepared.accessibilityNotes ?? "None provided"}
-Original tone hint: ${
+Companions: ${companions || "Solo"}
+Traveller interests: ${interests || "General exploration"}
+Preferred tone (normalised): ${toneDescriptor}
+Preferred pace (normalised): ${paceDescriptor}
+Raw tone hint: ${
     typeof preferences.preferredTone === "string" &&
     preferences.preferredTone.trim()
       ? preferences.preferredTone.trim()
       : "Not specified"
   }
-Original pace hint: ${
+Raw pace hint: ${
     typeof preferences.preferredPace === "string" &&
     preferences.preferredPace.trim()
       ? preferences.preferredPace.trim()
       : "Not specified"
   }
-Additional guidance: ${
-    extraGuidance ?? "Keep the narration vivid and human, 120-160 words."
-  }
-Additional persona context: ${
-    extraPersonaNotes || "No extra persona context supplied"
-  }
+Accessibility notes: ${prepared.accessibilityNotes ?? "None"}
+Persona extras: ${extraPersonaNotes || "None"}
+
+Additional guidance: ${extraGuidance ?? defaultGuidance}
 `;
 
   const response = await client.responses.create({
@@ -137,7 +136,7 @@ Additional persona context: ${
       {
         role: "system",
         content:
-          "You are an on-location tour guide narrating Jewel Changi Airport experiences. Blend storytelling with practical cues. Speak directly to the traveller, stay positive, and weave in at least one highlight tied to their interests and accessibility needs.",
+          "You are a friendly Singapore tour guide stationed inside Jewel Changi Airport. Speak in concise, upbeat paragraphs with a light touch of Singlish (use lah, lor, leh sparingly). Structure every reply as: (1) quick hook about the place, (2) personalised highlight that links to the traveller's interests or needs, (3) two leading questions that invite them to continue exploring the app. Stay respectful, accessible, and keep it under 100 words.",
       },
       {
         role: "user",
