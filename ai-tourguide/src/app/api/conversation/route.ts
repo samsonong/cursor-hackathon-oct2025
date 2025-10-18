@@ -1,4 +1,3 @@
-// app/api/tour/voice/route.ts
 import {
   SESSIONS,
   MAX_TURNS,
@@ -38,7 +37,6 @@ export async function POST(req: Request) {
 
     const session = getSession(providedSessionId);
 
-    // Idle timeout check
     if (isExpired(session)) {
       const payload = {
         sessionId: session.id,
@@ -52,15 +50,12 @@ export async function POST(req: Request) {
           detectedWakeWord: false,
         },
       };
-      // End and clear session
       SESSIONS.delete(session.id);
       return Response.json(payload);
     }
 
-    // Refresh activity
     session.lastSeenAt = now();
 
-    // First turn → detect & strip wake word (non-strict if missing)
     let detectedWakeWord = false;
     let userText = strippedFromClient || trimmedText;
     if (session.turns === 0) {
@@ -100,8 +95,7 @@ export async function POST(req: Request) {
     });
     const reply = agentResult.answer;
 
-    // Update session state
-    const history = session.messages.slice(-MAX_TURNS * 2); // keep recent exchanges
+    const history = session.messages.slice(-MAX_TURNS * 2);
     session.messages = [
       ...history,
       { role: "user", content: userText },
@@ -135,17 +129,3 @@ export async function POST(req: Request) {
   }
 }
 
-/**
- * .env.local
- * OPENAI_API_KEY=sk-...
- * GUIDE_MODEL=gpt-4o-mini  # optional
- *
- * Example:
- * curl -X POST http://localhost:3000/api/tour/voice \
- *   -H "content-type: application/json" \
- *   -d '{"text":"Hey Wei Jie, tell me about the architecture of Jewel","placeName":"Jewel Changi Airport"}'
- *
- * Notes:
- * - This uses an in-memory Map. Sessions reset on server restart and won't share across instances.
- * - Idle timeout is 30s from last request; subsequent calls refresh it.
- */
