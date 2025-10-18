@@ -5,7 +5,7 @@ export type ConversationRecord = {
   user: string;
   assistant: string;
   timestamp: string;
-  sessionId: string;
+  sessionId?: string;
 };
 
 export type SessionConversationHistory = {
@@ -40,10 +40,11 @@ export class ConversationHistoryStore {
   }
 
   async loadHistory(
-    sessionId: string,
-    limit = 10
+    limit = 10,
+    sessionId?: string
   ): Promise<ConversationRecord[]> {
-    return this.loadSessionHistory(sessionId, limit);
+    const targetSessionId = sessionId || "default";
+    return this.loadSessionHistory(targetSessionId, limit);
   }
 
   async loadSessionHistory(
@@ -60,12 +61,17 @@ export class ConversationHistoryStore {
   }
 
   async append(record: ConversationRecord): Promise<void> {
-    await this.appendToSession(record);
+    // Provide default sessionId if not provided
+    const recordWithSessionId = {
+      ...record,
+      sessionId: record.sessionId || "default",
+    };
+    await this.appendToSession(recordWithSessionId);
   }
 
   private async appendToSession(record: ConversationRecord): Promise<void> {
     const sessionHistory = await this.readSessionHistory();
-    const sessionId = record.sessionId;
+    const sessionId = record.sessionId || "default";
 
     if (!sessionHistory[sessionId]) {
       sessionHistory[sessionId] = [];

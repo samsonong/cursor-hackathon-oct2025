@@ -28,6 +28,21 @@ export function getSession(sessionId?: string | null) {
   if (sessionId && SESSIONS.has(sessionId)) {
     return SESSIONS.get(sessionId)!;
   }
+
+  // If sessionId is provided but not in memory, create session with that ID
+  if (sessionId) {
+    const s: Session = {
+      id: sessionId,
+      messages: [],
+      lastSeenAt: now(),
+      turns: 0,
+      lang: undefined,
+    };
+    SESSIONS.set(s.id, s);
+    return s;
+  }
+
+  // Only create new UUID session if no sessionId provided
   const s = newSession();
   SESSIONS.set(s.id, s);
   return s;

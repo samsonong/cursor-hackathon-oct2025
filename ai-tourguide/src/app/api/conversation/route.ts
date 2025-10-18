@@ -7,13 +7,46 @@ import {
   iso,
   isExpired,
   now,
+  type Msg,
 } from "@/lib/conversation";
+import { ConversationHistoryStore } from "@/lib/conversation-history";
 import { TourGuideAgent } from "@/lib/tour-agent";
 
 const FRIENDLY_TONE_MODEL =
   process.env.OPENAI_FRIENDLY_TONE_MODEL ?? "gpt-4o-mini";
 
 let cachedOpenAI: OpenAI | null = null;
+let cachedHistoryStore: ConversationHistoryStore | null = null;
+
+function getHistoryStore(): ConversationHistoryStore {
+  if (cachedHistoryStore) {
+    return cachedHistoryStore;
+  }
+  cachedHistoryStore = new ConversationHistoryStore();
+  return cachedHistoryStore;
+}
+
+async function loadSessionHistory(sessionId: string): Promise<Msg[]> {
+  try {
+    const historyStore = getHistoryStore();
+    const records = await historyStore.loadSessionHistory(sessionId, 20); // Load last 20 messages
+
+    // Convert conversation records to session messages
+    const messages: Msg[] = [];
+    for (const record of records) {
+      messages.push({ role: "user", content: record.user });
+      messages.push({ role: "assistant", content: record.assistant });
+    }
+
+    return messages;
+  } catch (error) {
+    console.warn("[ConversationAPI] failed to load session history", {
+      error,
+      sessionId,
+    });
+    return [];
+  }
+}
 
 function getOpenAIClient(): OpenAI {
   if (cachedOpenAI) {
@@ -90,6 +123,16 @@ export async function POST(req: Request) {
     const session = getSession(providedSessionId);
     console.log("session", session);
 
+    // Load conversation history from file if sessionId is provided and session is empty
+    if (providedSessionId && session.messages.length === 0) {
+      const historyMessages = await loadSessionHistory(providedSessionId);
+      if (historyMessages.length > 0) {
+        session.messages = historyMessages;
+        // Update turns count based on loaded messages
+        session.turns = Math.floor(historyMessages.length / 2);
+      }
+    }
+
     if (isExpired(session)) {
       const payload = {
         sessionId: session.id,
@@ -128,7 +171,6 @@ export async function POST(req: Request) {
         typeof lat === "number" && typeof lng === "number"
           ? { lat, lng }
           : undefined,
-      sessionId: session.id, // Pass the session ID to the tour agent
     });
     console.log("agentResult", agentResult);
     const reply = await rewriteReplyToFriendlyTone(agentResult.answer, lang);
@@ -144,6 +186,21 @@ export async function POST(req: Request) {
     session.turns += 1;
     session.lang = lang;
     session.lastSeenAt = now();
+
+    // Save conversation to persistent history store
+    try {
+      const historyStore = getHistoryStore();
+      await historyStore.append({
+        user: userText,
+        assistant: reply,
+        timestamp: new Date().toISOString(),
+        sessionId: session.id,
+      });
+    } catch (error) {
+      console.warn("[ConversationAPI] failed to save conversation history", {
+        error,
+      });
+    }
 
     const payload = {
       sessionId: session.id,
