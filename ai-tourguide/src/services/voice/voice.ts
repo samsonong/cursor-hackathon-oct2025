@@ -9,7 +9,7 @@ const DEFAULT_MODEL_ID =
 
 const VOICE_ALIAS_MAP: Record<string, string> = {
   "default-tour-guide": DEFAULT_VOICE_ID,
-  "default": DEFAULT_VOICE_ID,
+  default: DEFAULT_VOICE_ID,
 };
 
 if (!ELEVENLABS_API_KEY) {
