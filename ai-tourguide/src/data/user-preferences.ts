@@ -1,11 +1,10 @@
 import { UserPreferences } from "@/lib/storytelling";
 
 export const userPreferences: UserPreferences = {
-  travelerName: "Jordan",
+  travelerName: "Samson",
   tripCompanions: ["partner", "little explorer"],
-  interests: ["architecture", "culinary", "interactive art", "nature"],
+  interests: ["military", "history", "interactive art"],
   preferredTone: "warm",
   preferredPace: "leisurely",
-  accessibilityNotes:
-    "prefers routes with stroller-friendly ramps and quiet retreats",
+  accessibilityNotes: "",
 };

@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 
+import { narratePointOfInterestAction } from "@/app/actions/narrate-point-of-interest";
 import { userPreferences } from "@/data/user-preferences";
 import {
   changiJewelKnowledgeBase,
@@ -49,6 +50,21 @@ export default function StorytellerPage() {
     return poiCatalog.find((poi) => poi.id === selectedPoiId) ?? null;
   }, [selectedPoiId]);
 
+  const recordNarration = (story: string, poi: PlaceOfInterest) => {
+    setLatestStory(story);
+    setNarrationLog((prev) =>
+      [
+        {
+          poiId: poi.id,
+          poiName: poi.name,
+          story,
+          timestamp: Date.now(),
+        },
+        ...prev,
+      ].slice(0, 12)
+    );
+  };
+
   const speakPointOfInterest = async () => {
     if (!selectedPoi) {
       setError("Select a point of interest to continue.");
@@ -59,32 +75,30 @@ export default function StorytellerPage() {
     setIsNarrating(true);
 
     try {
-      const story = generateStorytellingForPlaceOfInterest(
+      const story = await narratePointOfInterestAction({
+        poi: selectedPoi,
+        preferences: userPreferences,
+      });
+
+      recordNarration(story, selectedPoi);
+      await narrateToUser(story);
+    } catch (untypedError) {
+      console.error("AI narration failed", untypedError);
+
+      const fallbackStory = generateStorytellingForPlaceOfInterest(
         userPreferences,
         selectedPoi
       );
 
-      setLatestStory(story);
-      setNarrationLog((prev) =>
-        [
-          {
-            poiId: selectedPoi.id,
-            poiName: selectedPoi.name,
-            story,
-            timestamp: Date.now(),
-          },
-          ...prev,
-        ].slice(0, 12)
-      );
+      recordNarration(fallbackStory, selectedPoi);
 
-      await narrateToUser(story);
-    } catch (untypedError) {
-      console.error(untypedError);
       const message =
         untypedError instanceof Error
-          ? untypedError.message
-          : "Unable to craft a story just now.";
+          ? `AI narrator unavailable. Showing template narration instead. (${untypedError.message})`
+          : "AI narrator unavailable. Showing template narration instead.";
+
       setError(message);
+      await narrateToUser(fallbackStory);
     } finally {
       setIsNarrating(false);
     }
