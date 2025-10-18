@@ -351,8 +351,37 @@ export default function StorytellerPage() {
       setIsMicListening(false);
 
       try {
+        const callAgent = async (
+          rawText: string,
+          strippedText: string,
+          wakeWordUsed: boolean
+        ) => {
+          const agentResponse = await answerUserQuestion({
+            sessionId: conversationSessionIdRef.current,
+            text: rawText,
+            strippedText,
+            wakeWordDetected: wakeWordUsed,
+            wakeWord: activeWakeWord,
+            placeName: selectedPoi?.name,
+          });
+
+          setMicError(null);
+
+          if (agentResponse.ended) {
+            setConversationSessionId(null);
+          } else {
+            setConversationSessionId(agentResponse.sessionId);
+          }
+
+          if (agentResponse.reply) {
+            await narrateToUser(agentResponse.reply);
+          }
+
+          return agentResponse;
+        };
+
         const capturedSpeech = await listenToUser(detection.stripped ?? "");
-        const trimmedSpeech = capturedSpeech?.trim();
+        const trimmedSpeech = capturedSpeech?.replace(/\s+/g, " ").trim();
 
         if (!trimmedSpeech) {
           return;
@@ -364,25 +393,29 @@ export default function StorytellerPage() {
           .replace(/\s+/g, " ")
           .trim();
 
-        const response = await answerUserQuestion({
-          sessionId: conversationSessionIdRef.current,
-          text: rawQuestion,
-          strippedText: trimmedSpeech,
-          wakeWordDetected: true,
-          wakeWord: activeWakeWord,
-          placeName: selectedPoi?.name,
-        });
+        const initialResponse = await callAgent(
+          rawQuestion,
+          trimmedSpeech,
+          true
+        );
 
-        setMicError(null);
-
-        if (response.ended) {
-          setConversationSessionId(null);
-        } else {
-          setConversationSessionId(response.sessionId);
+        if (initialResponse.ended) {
+          return;
         }
 
-        if (response.reply) {
-          await narrateToUser(response.reply);
+        while (true) {
+          const followUpRaw = await listenToUser("");
+          const followUp = followUpRaw?.replace(/\s+/g, " ").trim();
+
+          if (!followUp) {
+            break;
+          }
+
+          const followUpResponse = await callAgent(followUp, followUp, false);
+
+          if (followUpResponse.ended) {
+            break;
+          }
         }
       } catch (error) {
         console.error("Failed to process wake word conversation", error);
