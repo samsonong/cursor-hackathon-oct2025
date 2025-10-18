@@ -3,10 +3,14 @@
 import { VOICE_CONFIG } from "./data";
 
 const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY;
-// This is a default voice ID. You can replace it with your own.
 const DEFAULT_VOICE_ID = VOICE_CONFIG["Cheryl Tan"].id;
 const DEFAULT_MODEL_ID =
   process.env.ELEVENLABS_MODEL_ID ?? "eleven_multilingual_v2";
+
+const VOICE_ALIAS_MAP: Record<string, string> = {
+  "default-tour-guide": DEFAULT_VOICE_ID,
+  "default": DEFAULT_VOICE_ID,
+};
 
 if (!ELEVENLABS_API_KEY) {
   console.warn(
@@ -30,6 +34,46 @@ type VoiceOverrides = Pick<
   ElevenLabsNarrationRequest,
   "stability" | "similarityBoost" | "style" | "useSpeakerBoost" | "speed"
 >;
+
+function normaliseVoiceId(voiceId?: string): string {
+  const fallback = DEFAULT_VOICE_ID;
+
+  if (!voiceId) {
+    return fallback;
+  }
+
+  const trimmed = voiceId.trim();
+  if (!trimmed) {
+    return fallback;
+  }
+
+  const lookupKey = trimmed.toLowerCase();
+
+  if (VOICE_ALIAS_MAP[lookupKey]) {
+    return VOICE_ALIAS_MAP[lookupKey];
+  }
+
+  const exactId = Object.values(VOICE_CONFIG).find((voice) => {
+    return voice.id === trimmed;
+  });
+
+  if (exactId) {
+    return exactId.id;
+  }
+
+  const byName = Object.entries(VOICE_CONFIG).find(([name]) => {
+    return name.toLowerCase() === lookupKey;
+  });
+
+  if (byName) {
+    return byName[1].id;
+  }
+
+  console.warn(
+    `[ElevenLabs] Unknown voiceId "${voiceId}" provided. Falling back to default voice.`
+  );
+  return fallback;
+}
 
 function resolveVoiceSettings(voiceId: string, overrides: VoiceOverrides) {
   const voiceConfig = Object.values(VOICE_CONFIG).find(
@@ -65,7 +109,8 @@ async function requestElevenLabsStream({
     );
   }
 
-  const voiceSettings = resolveVoiceSettings(voiceId, {
+  const resolvedVoiceId = normaliseVoiceId(voiceId);
+  const voiceSettings = resolveVoiceSettings(resolvedVoiceId, {
     stability,
     similarityBoost,
     style,
@@ -74,7 +119,7 @@ async function requestElevenLabsStream({
   });
 
   const response = await fetch(
-    `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}/stream`,
+    `https://api.elevenlabs.io/v1/text-to-speech/${resolvedVoiceId}/stream`,
     {
       method: "POST",
       headers: {

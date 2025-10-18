@@ -10,7 +10,6 @@ import {
 } from "react";
 
 import { narratePointOfInterestAction } from "@/app/actions/narrate-point-of-interest";
-import { narrateWithElevenLabsAction } from "@/app/actions/narrate-with-elevenlabs";
 import { answerUserQuestion } from "@/app/conversation/page";
 import { userPreferences } from "@/data/user-preferences";
 import { changiJewelMain, changiJewelRainVortex } from "@/data/changi-jewel";
@@ -83,40 +82,6 @@ type DemoNarrationRequestPayload = {
 };
 
 type StatusState = "waiting" | "listening" | "thinking" | "answering" | "error";
-
-async function playAudioFromDataUrl(dataUrl: string): Promise<void> {
-  if (typeof window === "undefined") {
-    return;
-  }
-
-  const audio = new Audio(dataUrl);
-
-  await new Promise<void>((resolve, reject) => {
-    const handleError = (event: Event) => {
-      audio.removeEventListener("ended", handleEnded);
-      audio.removeEventListener("error", handleError);
-      reject(new Error(`Audio playback failed: ${event.type}`));
-    };
-
-    const handleEnded = () => {
-      audio.removeEventListener("ended", handleEnded);
-      audio.removeEventListener("error", handleError);
-      resolve();
-    };
-
-    audio.addEventListener("ended", handleEnded, { once: true });
-    audio.addEventListener("error", handleError, { once: true });
-
-    const playPromise = audio.play();
-
-    if (playPromise && typeof playPromise.catch === "function") {
-      playPromise.catch((error) => {
-        audio.pause();
-        reject(error);
-      });
-    }
-  });
-}
 
 function isMeaningfulSpeech(input: string): boolean {
   const trimmed = input.trim();
@@ -619,27 +584,10 @@ export default function DemoSplashPage() {
           preferences: userPreferences,
         });
 
-        let audioPlayed = false;
+        const voiceOptions = voiceToUse ? { voiceId: voiceToUse } : undefined;
 
-        try {
-          if (voiceToUse) {
-            const audioDataUrl = await narrateWithElevenLabsAction({
-              text: story,
-              voiceId: voiceToUse,
-            });
-
-            setStatusState("answering");
-            await playAudioFromDataUrl(audioDataUrl);
-            audioPlayed = true;
-          }
-        } catch (audioError) {
-          console.error("ElevenLabs narration failed", audioError);
-        }
-
-        if (!audioPlayed) {
-          setStatusState("answering");
-          await narrateToUser(story);
-        }
+        setStatusState("answering");
+        await narrateToUser(story, voiceOptions);
       } catch (untypedError) {
         console.error("AI narration failed", untypedError);
         setStatusState("thinking");
@@ -649,27 +597,10 @@ export default function DemoSplashPage() {
           poi
         );
 
-        let audioPlayed = false;
+        const voiceOptions = voiceToUse ? { voiceId: voiceToUse } : undefined;
 
-        try {
-          if (voiceToUse) {
-            const fallbackAudioDataUrl = await narrateWithElevenLabsAction({
-              text: fallbackStory,
-              voiceId: voiceToUse,
-            });
-
-            setStatusState("answering");
-            await playAudioFromDataUrl(fallbackAudioDataUrl);
-            audioPlayed = true;
-          }
-        } catch (audioError) {
-          console.error("ElevenLabs fallback narration failed", audioError);
-        }
-
-        if (!audioPlayed) {
-          setStatusState("answering");
-          await narrateToUser(fallbackStory);
-        }
+        setStatusState("answering");
+        await narrateToUser(fallbackStory, voiceOptions);
       } finally {
         setIsNarrating(false);
         resumeWakeWordListening();

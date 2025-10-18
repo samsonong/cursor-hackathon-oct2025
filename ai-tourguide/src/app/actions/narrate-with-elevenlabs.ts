@@ -1,29 +1,12 @@
 "use server";
 
-import { narrateWithElevenLabs } from "@/services/voice/voice";
-
-export type NarrateWithElevenLabsInput = {
-  text: string;
-  voiceId?: string;
-  modelId?: string;
-  optimizeLatency?: 0 | 1 | 2 | 3 | 4;
-};
-
-export async function narrateWithElevenLabsAction({
-  text,
-  voiceId,
-  modelId,
-  optimizeLatency,
-}: NarrateWithElevenLabsInput): Promise<string> {
-  if (!text.trim()) {
-    throw new Error("Cannot generate audio without narration text.");
-  }
-
-  const audioBuffer = await narrateWithElevenLabs({
-    text,
-    voiceId,
-    modelId,
-    optimizeLatency,
-  });
-  return `data:audio/mpeg;base64,${audioBuffer.toString("base64")}`;
+/**
+ * @deprecated This action has been retired in favour of the client-side `narrateToUser`
+ * helper, which streams narration directly from ElevenLabs via `/api/narration`.
+ * Any new code should call `narrateToUser` instead of invoking this action.
+ */
+export async function narrateWithElevenLabsAction(): Promise<never> {
+  throw new Error(
+    "narrateWithElevenLabsAction has been removed. Use narrateToUser on the client instead."
+  );
 }
