@@ -71,9 +71,11 @@ export async function POST(req: Request) {
           ? { lat, lng }
           : undefined,
     });
+    console.log("agentResult", agentResult);
     const reply = agentResult.answer;
 
     const history = session.messages;
+    console.log("history", history);
     session.messages = [
       ...history,
       { role: "user", content: userText },
@@ -98,6 +100,7 @@ export async function POST(req: Request) {
         webSearchNote: agentResult.webSearchNote,
       },
     };
+    console.log("payload", payload);
     return Response.json(payload);
   } catch (err: unknown) {
     return Response.json(

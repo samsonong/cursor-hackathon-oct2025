@@ -98,6 +98,7 @@ export default function ConversationPage() {
     reason: string | null;
   }>({ ended: false, reason: null });
   const [sessionMeta, setSessionMeta] = useState<SessionMetaState | null>(null);
+  const [firstTurn, setFirstTurn] = useState<boolean>(true);
 
   // Voice listening state
   const [isVoiceListening, setIsVoiceListening] = useState<boolean>(false);
@@ -191,6 +192,7 @@ export default function ConversationPage() {
     setError(null);
     setConversationEnded({ ended: false, reason: null });
     setSessionMeta(null);
+    setFirstTurn(true); // Reset to first turn when manually resetting
   }, []);
 
   const sendTranscript = useCallback(
@@ -215,11 +217,14 @@ export default function ConversationPage() {
         effectiveWakeWord
       );
       console.log("detection", detection);
-      const firstTurn = !sessionId;
       console.log("firstTurn", firstTurn);
 
       setWakeWordDetected(detection.matched);
       setStrippedTranscript(detection.stripped);
+
+      if (detection.matched) {
+        setFirstTurn(false);
+      }
 
       if (firstTurn && !detection.matched) {
         setError(
@@ -297,6 +302,7 @@ export default function ConversationPage() {
             ended: true,
             reason: data?.endReason ?? null,
           });
+          setFirstTurn(true); // Reset to first turn when session expires
         } else {
           setConversationEnded({ ended: false, reason: null });
         }
@@ -309,6 +315,7 @@ export default function ConversationPage() {
     [
       conversationEnded.ended,
       effectiveWakeWord,
+      firstTurn,
       placeName,
       sessionId,
       transcript,
@@ -398,6 +405,11 @@ export default function ConversationPage() {
         const combined = transcripts.join(" ").toLowerCase();
         const detection = detectAndStripWakeWord(combined, effectiveWakeWord);
         const now = Date.now();
+
+        // Log words heard when waiting for wake word (yellow dot state)
+        if (!isVoiceActiveRef.current) {
+          console.log("🎤 Words heard (waiting for wake word):", combined);
+        }
 
         // Update voice transcript for display
         setVoiceTranscript(combined);

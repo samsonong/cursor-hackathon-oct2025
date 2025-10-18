@@ -303,14 +303,22 @@ export class TourGuideAgent {
       execution = await this.executeAgentRun({
         ...baseRunParams,
       });
-      summary = this.buildAgentResponse(execution.agentRun, execution.runTrace, query);
+      summary = this.buildAgentResponse(
+        execution.agentRun,
+        execution.runTrace,
+        query
+      );
     } catch (error) {
       return this.handleAgentError(error, { query });
     }
 
     let fallbackAttempted = false;
     if (
-      this.shouldFallbackToWebSearch(query, summary.response, execution.runTrace)
+      this.shouldFallbackToWebSearch(
+        query,
+        summary.response,
+        execution.runTrace
+      )
     ) {
       fallbackAttempted = true;
       console.info("[TourGuideAgent] rerunning with web search preference", {
@@ -402,6 +410,8 @@ export class TourGuideAgent {
         ? rawAnswer.trim()
         : "Sorry, I couldn't craft a response just now.";
 
+    console.log("rawAnswer", rawAnswer);
+
     const usageData =
       (
         agentRun as {
@@ -430,9 +440,11 @@ export class TourGuideAgent {
     );
 
     const runItems =
-      (agentRun as {
-        newItems?: Array<{ rawItem?: any }>;
-      })?.newItems ?? [];
+      (
+        agentRun as {
+          newItems?: Array<{ rawItem?: any }>;
+        }
+      )?.newItems ?? [];
 
     const webSearchCalls = runItems
       .map((item) => item?.rawItem)
@@ -562,9 +574,7 @@ export class TourGuideAgent {
       .toLowerCase()
       .replace(/[^a-z0-9\s]+/g, " ")
       .split(/\s+/)
-      .filter(
-        (token) => token.length >= 4 && !KEYWORD_STOPWORDS.has(token)
-      );
+      .filter((token) => token.length >= 4 && !KEYWORD_STOPWORDS.has(token));
   }
 
   private handleAgentError(
