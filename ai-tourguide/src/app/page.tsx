@@ -341,15 +341,21 @@ export default function StorytellerPage() {
         };
 
         recognition.onerror = (event: SpeechRecognitionErrorEventLike) => {
-          console.warn(
-            "Speech recognition error while listening to the user",
-            event
-          );
-          setMicError(
-            typeof event?.error === "string"
-              ? `Speech recognition error: ${event.error}`
-              : "Microphone listening error occurred."
-          );
+          const errorKey = event?.error;
+          if (typeof errorKey === "string" && errorKey === "no-speech") {
+            console.info("Speech recognition detected no speech input.");
+            setMicError(null);
+          } else {
+            console.warn(
+              "Speech recognition error while listening to the user",
+              event
+            );
+            setMicError(
+              typeof errorKey === "string"
+                ? `Speech recognition error: ${errorKey}`
+                : "Microphone listening error occurred."
+            );
+          }
           finish();
         };
 
