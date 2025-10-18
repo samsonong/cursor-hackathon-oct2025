@@ -26,6 +26,84 @@ type ElevenLabsNarrationRequest = {
   speed?: number;
 };
 
+type VoiceOverrides = Pick<
+  ElevenLabsNarrationRequest,
+  "stability" | "similarityBoost" | "style" | "useSpeakerBoost" | "speed"
+>;
+
+function resolveVoiceSettings(voiceId: string, overrides: VoiceOverrides) {
+  const voiceConfig = Object.values(VOICE_CONFIG).find(
+    (voice) => voice.id === voiceId
+  );
+
+  return {
+    stability: overrides.stability ?? voiceConfig?.settings.stability ?? 0.5,
+    similarity_boost:
+      overrides.similarityBoost ??
+      voiceConfig?.settings.similarityBoost ??
+      0.75,
+    style: overrides.style ?? voiceConfig?.settings.style ?? 0.0,
+    use_speaker_boost: overrides.useSpeakerBoost ?? true,
+    speed: overrides.speed ?? voiceConfig?.settings.speed ?? 0.9,
+  };
+}
+
+async function requestElevenLabsStream({
+  text,
+  voiceId = DEFAULT_VOICE_ID,
+  modelId = DEFAULT_MODEL_ID,
+  optimizeLatency = 4,
+  stability,
+  similarityBoost,
+  style,
+  useSpeakerBoost,
+  speed,
+}: ElevenLabsNarrationRequest) {
+  if (!ELEVENLABS_API_KEY) {
+    throw new Error(
+      "Missing ELEVENLABS_API_KEY. Cannot generate audio with ElevenLabs."
+    );
+  }
+
+  const voiceSettings = resolveVoiceSettings(voiceId, {
+    stability,
+    similarityBoost,
+    style,
+    useSpeakerBoost,
+    speed,
+  });
+
+  const response = await fetch(
+    `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}/stream`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "xi-api-key": ELEVENLABS_API_KEY,
+      },
+      body: JSON.stringify({
+        text,
+        model_id: modelId,
+        optimize_streaming_latency: optimizeLatency,
+        voice_settings: voiceSettings,
+      }),
+    }
+  );
+
+  if (!response.ok) {
+    const errorBody = await response.text();
+    throw new Error(
+      `ElevenLabs API error: ${response.statusText} - ${errorBody}`
+    );
+  }
+
+  if (!response.body) {
+    throw new Error("ElevenLabs response did not include a stream body.");
+  }
+
+  return response;
+}
+
 /**
  * Generates audio from text using the ElevenLabs API.
  * @returns A Buffer containing the audio data.
@@ -41,57 +119,26 @@ export async function narrateWithElevenLabs({
   useSpeakerBoost = true,
   speed,
 }: ElevenLabsNarrationRequest): Promise<Buffer> {
-  if (!ELEVENLABS_API_KEY) {
-    // In a real app, you might want to return a pre-recorded message
-    // or handle this more gracefully than throwing an error.
-    throw new Error(
-      "Missing ELEVENLABS_API_KEY. Cannot generate audio with ElevenLabs."
-    );
-  }
-
-  const voiceConfig = Object.values(VOICE_CONFIG).find(
-    (v) => v.id === voiceId
-  );
-
-  const voiceSettings = {
-    stability: stability ?? voiceConfig?.settings.stability ?? 0.5,
-    similarity_boost:
-      similarityBoost ?? voiceConfig?.settings.similarityBoost ?? 0.75,
-    style: style ?? voiceConfig?.settings.style ?? 0.0,
-    use_speaker_boost: useSpeakerBoost,
-    speed: speed ?? voiceConfig?.settings.speed ?? 0.9,
-  };
-
   try {
-    const response = await fetch(
-      `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}/stream`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "xi-api-key": ELEVENLABS_API_KEY,
-        },
-        body: JSON.stringify({
-          text,
-          model_id: modelId,
-          optimize_streaming_latency: optimizeLatency,
-          voice_settings: voiceSettings,
-        }),
-      }
-    );
+    const response = await requestElevenLabsStream({
+      text,
+      voiceId,
+      modelId,
+      optimizeLatency,
+      stability,
+      similarityBoost,
+      style,
+      useSpeakerBoost,
+      speed,
+    });
 
-    if (!response.ok) {
-      const errorBody = await response.text();
-      throw new Error(
-        `ElevenLabs API error: ${response.statusText} - ${errorBody}`
-      );
-    }
+    const stream = response.body;
 
-    if (!response.body) {
+    if (!stream) {
       throw new Error("ElevenLabs response did not include a stream body.");
     }
 
-    const reader = response.body.getReader();
+    const reader = stream.getReader();
     const chunks: Uint8Array[] = [];
 
     while (true) {
@@ -123,6 +170,45 @@ export async function narrateWithElevenLabs({
     console.error("Failed to generate audio with ElevenLabs:", error);
     throw new Error(
       "Failed to generate audio. Please check the server logs for more details."
+    );
+  }
+}
+
+export async function streamNarrationWithElevenLabs({
+  text,
+  voiceId = DEFAULT_VOICE_ID,
+  modelId = DEFAULT_MODEL_ID,
+  optimizeLatency = 4,
+  stability,
+  similarityBoost,
+  style,
+  useSpeakerBoost = true,
+  speed,
+}: ElevenLabsNarrationRequest): Promise<ReadableStream<Uint8Array>> {
+  try {
+    const response = await requestElevenLabsStream({
+      text,
+      voiceId,
+      modelId,
+      optimizeLatency,
+      stability,
+      similarityBoost,
+      style,
+      useSpeakerBoost,
+      speed,
+    });
+
+    const stream = response.body;
+
+    if (!stream) {
+      throw new Error("ElevenLabs response did not include a stream body.");
+    }
+
+    return stream;
+  } catch (error) {
+    console.error("Failed to stream audio with ElevenLabs:", error);
+    throw new Error(
+      "Failed to stream audio. Please check the server logs for more details."
     );
   }
 }

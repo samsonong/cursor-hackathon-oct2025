@@ -2,6 +2,7 @@
 
 import { useCallback, useMemo, useState, useRef, useEffect } from "react";
 
+import { narrateToUser } from "@/lib/storytelling";
 import { DEFAULT_WAKE_WORD, detectAndStripWakeWord } from "@/lib/wake-word";
 
 type ConversationMessage = {
@@ -286,6 +287,12 @@ export default function ConversationPage() {
         setStrippedTranscript("");
         setWakeWordDetected(false);
 
+        if (data?.reply) {
+          void narrateToUser(data.reply).catch((playbackError) => {
+            console.error("Failed to narrate assistant reply", playbackError);
+          });
+        }
+
         if (data?.meta) {
           setSessionMeta({
             turn: typeof data.meta.turn === "number" ? data.meta.turn : 0,
@@ -402,26 +409,36 @@ export default function ConversationPage() {
           return;
         }
 
-        const combined = transcripts.join(" ").toLowerCase();
-        const detection = detectAndStripWakeWord(combined, effectiveWakeWord);
+        const combinedRaw = transcripts.join(" ").trim();
+
+        if (!combinedRaw) {
+          return;
+        }
+
+        const detection = detectAndStripWakeWord(
+          combinedRaw,
+          effectiveWakeWord
+        );
+        const displayText = detection.matched
+          ? detection.stripped || combinedRaw
+          : combinedRaw;
         const now = Date.now();
 
         // Log words heard when waiting for wake word (yellow dot state)
         if (!isVoiceActiveRef.current) {
-          console.log("🎤 Words heard (waiting for wake word):", combined);
+          console.log("🎤 Words heard (waiting for wake word):", combinedRaw);
         }
 
         // Update voice transcript for display
-        setVoiceTranscript(combined);
-        currentVoiceTranscriptRef.current = combined;
+        setVoiceTranscript(displayText);
+        currentVoiceTranscriptRef.current = combinedRaw;
 
         // Check for wake word detection
         if (detection.matched && !isVoiceActiveRef.current) {
           isVoiceActiveRef.current = true;
           setIsVoiceActive(true);
-          const strippedText = detection.stripped || combined;
+          const strippedText = detection.stripped || "";
           setVoiceTranscript(strippedText);
-          currentVoiceTranscriptRef.current = strippedText;
         }
 
         // Track speech activity
@@ -486,12 +503,7 @@ export default function ConversationPage() {
         err instanceof Error ? err.message : "Failed to start voice listening"
       );
     }
-  }, [
-    effectiveWakeWord,
-    voiceTranscript,
-    processVoiceTranscript,
-    isVoiceListening,
-  ]);
+  }, [effectiveWakeWord, processVoiceTranscript, isVoiceListening]);
 
   const stopVoiceListening = useCallback(() => {
     if (recognitionRef.current) {
@@ -893,9 +905,9 @@ export default function ConversationPage() {
           </h2>
           <ol className="mt-3 list-decimal space-y-2 pl-5 text-slate-400">
             <li>
-              <strong>Voice Mode:</strong> Click "Start Listening" to enable
-              continuous voice recognition. Say the wake word (default: "
-              {DEFAULT_WAKE_WORD}") followed by your question. The system will
+              <strong>Voice Mode:</strong> Click “Start Listening” to enable
+              continuous voice recognition. Say the wake word (default: “
+              {DEFAULT_WAKE_WORD}”) followed by your question. The system will
               automatically send your message after 3 seconds of silence.
             </li>
             <li>

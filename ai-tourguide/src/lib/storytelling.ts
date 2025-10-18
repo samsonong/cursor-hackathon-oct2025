@@ -302,14 +302,136 @@ export function generateStorytellingForPlaceOfInterest(
     .join(" ");
 }
 
-export async function narrateToUser(narration: string): Promise<void> {
-  if (typeof window === "undefined") {
-    console.info("[Narration]", narration);
+type NarrationOptions = {
+  voiceId?: string;
+  optimizeLatency?: 0 | 1 | 2 | 3 | 4;
+  preferSpeechSynthesis?: boolean;
+};
+
+const STREAM_QUERY_LIMIT = 1400;
+let activeNarrationAudio: HTMLAudioElement | null = null;
+
+function stopActiveNarrationAudio() {
+  if (!activeNarrationAudio) {
     return;
   }
 
+  try {
+    activeNarrationAudio.pause();
+    activeNarrationAudio.src = "";
+    activeNarrationAudio.load();
+  } catch (error) {
+    console.warn("Failed to stop previous narration audio", error);
+  } finally {
+    activeNarrationAudio = null;
+  }
+}
+
+async function streamNarrationToAudioElement(
+  narration: string,
+  options: NarrationOptions
+): Promise<void> {
+  if (!("Audio" in window)) {
+    throw new Error("Audio element not supported in this environment");
+  }
+
+  if (narration.length > STREAM_QUERY_LIMIT) {
+    throw new Error("Narration too long to stream via query parameter");
+  }
+
+  const params = new URLSearchParams();
+  params.set("text", narration);
+  if (options.voiceId) {
+    params.set("voiceId", options.voiceId);
+  }
+  if (options.optimizeLatency !== undefined) {
+    params.set("optimizeLatency", String(options.optimizeLatency));
+  }
+  params.set("ts", Date.now().toString());
+
+  stopActiveNarrationAudio();
+
+  const audio = new Audio(`/api/narration?${params.toString()}`);
+  audio.preload = "auto";
+  audio.crossOrigin = "anonymous";
+
+  await new Promise<void>((resolve, reject) => {
+    const cleanup = () => {
+      audio.removeEventListener("ended", handleEnded);
+      audio.removeEventListener("error", handleError);
+      if (activeNarrationAudio === audio) {
+        activeNarrationAudio = null;
+      }
+    };
+
+    const handleEnded = () => {
+      cleanup();
+      resolve();
+    };
+
+    const handleError = (event: Event) => {
+      audio.pause();
+      cleanup();
+      if (event instanceof ErrorEvent && event.message) {
+        reject(new Error(event.message));
+        return;
+      }
+      reject(new Error(`Audio stream error: ${event.type}`));
+    };
+
+    audio.addEventListener("ended", handleEnded, { once: true });
+    audio.addEventListener("error", handleError, { once: true });
+
+    activeNarrationAudio = audio;
+
+    const playPromise = audio.play();
+
+    if (playPromise && typeof playPromise.then === "function") {
+      playPromise.catch((error) => {
+        cleanup();
+        reject(error);
+      });
+    }
+  });
+}
+
+export async function narrateToUser(
+  narration: string,
+  options?: NarrationOptions
+): Promise<void> {
+  const trimmed = narration?.trim();
+
+  if (!trimmed) {
+    return;
+  }
+
+  if (typeof window === "undefined") {
+    console.info("[Narration]", trimmed);
+    return;
+  }
+
+  const narrationOptions = options ?? {};
+
+  if (!narrationOptions.preferSpeechSynthesis) {
+    try {
+      await streamNarrationToAudioElement(trimmed, narrationOptions);
+      return;
+    } catch (error) {
+      console.warn(
+        "Streaming narration failed; falling back to speech synthesis",
+        error
+      );
+    }
+  }
+
   if ("speechSynthesis" in window) {
-    const utterance = new SpeechSynthesisUtterance(narration);
+    try {
+      window.speechSynthesis.cancel();
+    } catch (error) {
+      console.warn("Unable to cancel existing speech synthesis", error);
+    }
+
+    const utterance = new SpeechSynthesisUtterance(trimmed);
 
     await new Promise<void>((resolve) => {
       utterance.onend = () => resolve();
@@ -320,5 +442,5 @@ export async function narrateToUser(narration: string): Promise<void> {
     return;
   }
 
-  console.info("[Narration]", narration);
+  console.info("[Narration]", trimmed);
 }
