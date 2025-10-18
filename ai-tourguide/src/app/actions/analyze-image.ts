@@ -64,68 +64,47 @@ export async function analyzeImageAction(
     }
 
     // Create the system prompt for tour guide context
-    const systemPrompt = `You are an AI tour guide specializing in Changi Jewel Airport. When analyzing images, provide:
+    const systemPrompt = `You are an AI tour guide for Changi Jewel Airport. Analyze images and provide:
 
-1. A detailed description of what you see in the image
-2. Identify any landmarks, architecture, or notable features
-3. Provide interesting facts, history, or context about what's visible
-4. If the image shows areas of Changi Jewel, give specific information about those locations
-5. Answer any specific questions the user has about the image
-6. Maintain an engaging, informative tour guide tone
+1. Brief description (2-3 sentences max)
+2. Key landmarks or features visible
+3. One interesting fact if relevant
+4. Answer user questions concisely
 
-Current location context: ${placeName}
-Language: ${language}
+Keep responses under 50 words. Be engaging but concise.
+Location: ${placeName}
+Language: ${language}`;
 
-Be conversational and educational, as if you're personally guiding someone through the location.`;
+    const userPrompt = userQuestion 
+      ? `Analyze this image and answer briefly: "${userQuestion}"`
+      : "Briefly describe what you see in this image (max 50 words).";
 
-    const userPrompt = userQuestion
-      ? `Please analyze this image and answer: "${userQuestion}"`
-      : "Please analyze this image and tell me what you see, with interesting details about any Changi Jewel features visible.";
-
-    let response;
-    try {
-      response = await openai.chat.completions.create({
-        model: "gpt-4o",
-        messages: [
-          {
-            role: "system",
-            content: systemPrompt,
-          },
-          {
-            role: "user",
-            content: [
-              {
-                type: "text",
-                text: userPrompt,
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o",
+      messages: [
+        {
+          role: "system",
+          content: systemPrompt,
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: userPrompt,
+            },
+            {
+              type: "image_url",
+              image_url: {
+                url: imageDataUrl,
+                detail: "high",
               },
-              {
-                type: "image_url",
-                image_url: {
-                  url: imageDataUrl,
-                  detail: "high",
-                },
-              },
-            ],
-          },
-        ],
-        max_tokens: 1000,
-        temperature: 0.7,
-      });
-    } catch (error) {
-      console.error("[OpenAI][ImageAnalysis] failed", {
-        placeName,
-        hasQuestion: Boolean(userQuestion),
-        language,
-        error,
-      });
-      throw error;
-    }
-
-    console.info("[OpenAI][ImageAnalysis] completed", {
-      placeName,
-      hasQuestion: Boolean(userQuestion),
-      language,
-      usage: response.usage,
+            },
+          ],
+        },
+      ],
+      max_tokens: 100,
+      temperature: 0.7,
     });
 
     const analysis = response.choices[0]?.message?.content;

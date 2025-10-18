@@ -1,9 +1,9 @@
-import { writeFile, readdir, readFile, mkdir } from "fs/promises";
-import { join } from "path";
+import { writeFile, readFile } from 'fs/promises';
+import { join } from 'path';
 
 export const runtime = "nodejs";
 
-const STORAGE_DIR = join(process.cwd(), "image-analyses");
+const CONVERSATION_HISTORY_PATH = join(process.cwd(), 'data', 'conversation-history.json');
 
 interface ImageContextPayload {
   timestamp?: string;
@@ -11,140 +11,201 @@ interface ImageContextPayload {
   imageAnalysis?: unknown;
   detectedObjects?: unknown;
   tourGuideResponse?: unknown;
+  sessionId?: string;
   [key: string]: unknown;
 }
 
-interface StoredAnalysisData extends ImageContextPayload {
-  id: string;
-  savedAt: string;
-  filename: string;
-}
-
-async function ensureStorageDir() {
+async function saveImageAnalysis(imageContext: ImageContextPayload) {
+  console.log('=== SAVE IMAGE ANALYSIS START ===');
+  console.log('Input imageContext:', JSON.stringify(imageContext, null, 2));
+  
   try {
-    await mkdir(STORAGE_DIR, { recursive: true });
-  } catch {
-    // Directory might already exist, ignore error
+    // Read existing conversation history
+    console.log('Reading conversation history from:', CONVERSATION_HISTORY_PATH);
+    let conversationHistory;
+    try {
+      const content = await readFile(CONVERSATION_HISTORY_PATH, 'utf-8');
+      conversationHistory = JSON.parse(content);
+      console.log('Successfully read conversation history');
+    } catch (error) {
+      console.warn('Could not read conversation history, creating new:', error);
+      conversationHistory = {};
+    }
+    
+    const analysisData = {
+      user: `Image uploaded for analysis at ${imageContext.placeName}`,
+      assistant: `${imageContext.imageAnalysis}\n\nDetected Objects: ${imageContext.detectedObjects ? (Array.isArray(imageContext.detectedObjects) ? imageContext.detectedObjects.join(', ') : imageContext.detectedObjects) : 'None'}\n\nTour Guide Response: ${imageContext.tourGuideResponse}`,
+      timestamp: new Date().toISOString(),
+      sessionId: imageContext.sessionId || 'image-analysis'
+    };
+    
+    console.log('Created analysis data:', JSON.stringify(analysisData, null, 2));
+    
+    // Use sessionId or create 'image-analysis' session
+    const sessionId = imageContext.sessionId || 'image-analysis';
+    console.log('Using session ID:', sessionId);
+    
+    if (!conversationHistory[sessionId]) {
+      conversationHistory[sessionId] = [];
+      console.log('Created new session array for:', sessionId);
+    }
+    
+    conversationHistory[sessionId].push(analysisData);
+    console.log('Added analysis to session, total entries:', conversationHistory[sessionId].length);
+    
+    // Write back to conversation history
+    console.log('Writing back to conversation history...');
+    await writeFile(CONVERSATION_HISTORY_PATH, JSON.stringify(conversationHistory, null, 2), 'utf-8');
+    
+    console.log(`Image analysis saved to conversation history: ${CONVERSATION_HISTORY_PATH}`);
+    console.log('=== SAVE IMAGE ANALYSIS SUCCESS ===');
+    return analysisData;
+  } catch (error) {
+    console.error('=== SAVE IMAGE ANALYSIS ERROR ===');
+    console.error('Failed to save image analysis:', error);
+    throw error;
   }
 }
 
-async function saveImageAnalysis(imageContext: ImageContextPayload) {
-  await ensureStorageDir();
-
-  const sourceTimestamp =
-    typeof imageContext.timestamp === "string" && imageContext.timestamp.trim()
-      ? imageContext.timestamp.trim()
-      : new Date().toISOString();
-  const filenameSafeTimestamp = sourceTimestamp.replace(/[:.]/g, "-");
-  const filename = `analysis-${filenameSafeTimestamp}.json`;
-  const filepath = join(STORAGE_DIR, filename);
-
-  const analysisData: StoredAnalysisData = {
-    id: `analysis_${Date.now()}`,
-    timestamp: sourceTimestamp,
-    savedAt: new Date().toISOString(),
-    placeName: imageContext.placeName,
-    imageAnalysis: imageContext.imageAnalysis,
-    detectedObjects: imageContext.detectedObjects,
-    tourGuideResponse: imageContext.tourGuideResponse,
-    filename,
-  };
-
-  await writeFile(filepath, JSON.stringify(analysisData, null, 2), "utf-8");
-
-  console.log(`Image analysis saved to: ${filepath}`);
-  return analysisData;
-}
-
 export async function POST(req: Request) {
+  console.log('=== POST REQUEST START ===');
   try {
-    const body = await req.json().catch(() => ({}));
+    console.log('Parsing request body...');
+    const body = await req.json().catch((parseError) => {
+      console.error('JSON parse error:', parseError);
+      return {};
+    });
+    
+    console.log('Request body:', JSON.stringify(body, null, 2));
 
     const imageContext = body?.imageContext;
+    console.log('Extracted imageContext:', JSON.stringify(imageContext, null, 2));
 
     if (!imageContext) {
+      console.error('Missing imageContext parameter');
       return Response.json(
         { error: "Missing 'imageContext' parameter." },
         { status: 400 }
       );
     }
 
+    console.log('Calling saveImageAnalysis...');
     const savedAnalysis = await saveImageAnalysis(imageContext);
+    console.log('saveImageAnalysis completed successfully');
 
-    return Response.json({
+    const response = {
       success: true,
-      message: "Image analysis saved to JSON file",
-      contextId: savedAnalysis.id,
-      filename: savedAnalysis.filename,
-      savedAt: savedAnalysis.savedAt,
-    });
+      message: "Image analysis saved to conversation history",
+      timestamp: savedAnalysis.timestamp,
+      sessionId: savedAnalysis.sessionId,
+    };
+    
+    console.log('Sending response:', JSON.stringify(response, null, 2));
+    console.log('=== POST REQUEST SUCCESS ===');
+    
+    return Response.json(response);
   } catch (err: unknown) {
+    console.error('=== POST REQUEST ERROR ===');
     console.error("Image context API error:", err);
-    return Response.json(
-      {
-        error:
-          err && typeof err === "object" && "message" in err
-            ? String(
-                (err as { message?: unknown }).message ?? "Unexpected error"
-              )
-            : "Unexpected error",
-      },
-      { status: 500 }
-    );
+    console.error("Error stack:", err instanceof Error ? err.stack : 'No stack trace');
+    
+    const errorResponse = {
+      error:
+        err && typeof err === "object" && "message" in err
+          ? String(
+              (err as { message?: unknown }).message ?? "Unexpected error"
+            )
+          : "Unexpected error",
+    };
+    
+    console.log('Sending error response:', JSON.stringify(errorResponse, null, 2));
+    
+    return Response.json(errorResponse, { status: 500 });
   }
 }
 
 export async function GET(req: Request) {
+  console.log('=== GET REQUEST START ===');
   try {
-    await ensureStorageDir();
-
     const url = new URL(req.url);
     const placeName = url.searchParams.get("placeName");
     const limit = parseInt(url.searchParams.get("limit") || "10");
-
-    // Read all JSON files from storage directory
-    const files = await readdir(STORAGE_DIR);
-    const jsonFiles = files.filter(
-      (file) => file.endsWith(".json") && file.startsWith("analysis-")
-    );
-
-    // Sort by filename (which includes timestamp) in descending order
-    jsonFiles.sort().reverse();
-
-    const analyses: StoredAnalysisData[] = [];
-
-    for (const file of jsonFiles.slice(0, limit)) {
-      try {
-        const filepath = join(STORAGE_DIR, file);
-        const content = await readFile(filepath, "utf-8");
-        const analysis = JSON.parse(content) as StoredAnalysisData;
-
-        // Filter by place name if specified
-        if (!placeName || analysis.placeName === placeName) {
-          analyses.push(analysis);
+    
+    console.log('GET parameters:', { placeName, limit });
+    
+    // Read conversation history
+    console.log('Reading conversation history from:', CONVERSATION_HISTORY_PATH);
+    let conversationHistory;
+    try {
+      const content = await readFile(CONVERSATION_HISTORY_PATH, 'utf-8');
+      conversationHistory = JSON.parse(content);
+      console.log('Successfully read conversation history, sessions:', Object.keys(conversationHistory));
+    } catch (error) {
+      console.warn("Could not read conversation history:", error);
+      return Response.json({
+        analyses: [],
+        total: 0,
+        source: "conversation-history.json",
+      });
+    }
+    
+    const analyses = [];
+    
+    // Collect all image analyses from all sessions
+    for (const sessionId in conversationHistory) {
+      const session = conversationHistory[sessionId];
+      console.log(`Processing session ${sessionId}, entries: ${Array.isArray(session) ? session.length : 'not array'}`);
+      
+      if (Array.isArray(session)) {
+        const imageAnalyses = session.filter(entry => 
+          entry.user && entry.user.includes('Image uploaded for analysis')
+        );
+        
+        console.log(`Found ${imageAnalyses.length} image analyses in session ${sessionId}`);
+        
+        for (const analysis of imageAnalyses) {
+          // Filter by place name if specified (extract from user message)
+          if (!placeName || analysis.user.includes(placeName)) {
+            analyses.push(analysis);
+            console.log('Added analysis:', { timestamp: analysis.timestamp, sessionId: analysis.sessionId });
+          }
         }
-      } catch (error) {
-        console.warn(`Failed to read analysis file ${file}:`, error);
       }
     }
+    
+    console.log(`Total analyses found: ${analyses.length}`);
+    
+    // Sort by timestamp in descending order (most recent first)
+    analyses.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+    
+    // Apply limit
+    const limitedAnalyses = analyses.slice(0, limit);
+    console.log(`Returning ${limitedAnalyses.length} analyses after limit`);
 
-    return Response.json({
-      analyses,
-      total: analyses.length,
-      storageDir: STORAGE_DIR,
-    });
+    const response = {
+      analyses: limitedAnalyses,
+      total: limitedAnalyses.length,
+      source: "conversation-history.json",
+    };
+    
+    console.log('=== GET REQUEST SUCCESS ===');
+    return Response.json(response);
   } catch (err: unknown) {
+    console.error('=== GET REQUEST ERROR ===');
     console.error("Image context fetch error:", err);
-    return Response.json(
-      {
-        error:
-          err && typeof err === "object" && "message" in err
-            ? String(
-                (err as { message?: unknown }).message ?? "Unexpected error"
-              )
-            : "Unexpected error",
-      },
-      { status: 500 }
-    );
+    console.error("Error stack:", err instanceof Error ? err.stack : 'No stack trace');
+    
+    const errorResponse = {
+      error:
+        err && typeof err === "object" && "message" in err
+          ? String(
+              (err as { message?: unknown }).message ?? "Unexpected error"
+            )
+          : "Unexpected error",
+    };
+    
+    console.log('Sending GET error response:', JSON.stringify(errorResponse, null, 2));
+    
+    return Response.json(errorResponse, { status: 500 });
   }
 }
