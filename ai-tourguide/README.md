@@ -43,3 +43,26 @@ Open [http://localhost:3000](http://localhost:3000) to experience the AI tour gu
 ## Built for Hackathon
 
 This project demonstrates the potential of AI-powered tourism experiences, combining conversational AI, computer vision, and personalized storytelling to create immersive travel companions.
+
+## Unique "Voice of Singaporean" Pack Created on ElevenLabs
+
+Voices of the first to latest Singaporeans!
+
+#### The OG Founder Utama  
+  <audio controls>
+    <source src="voice_of_sg/the_og_founder_utama.mp3" type="audio/mpeg">
+  </audio>
+
+#### Cheryl Tan  
+  <audio controls>
+    <source src="voice_of_sg/cheryl_tan.mp3" type="audio/mpeg">
+  </audio>
+
+#### A Weijie  
+  <audio controls>
+    <source src="voice_of_sg/a_weijie.mp3" type="audio/mpeg">
+
+#### Sir Raffles  
+  <audio controls>
+    <source src="voice_of_sg/sir_raffles.mp3" type="audio/mpeg">
+  </audio>
