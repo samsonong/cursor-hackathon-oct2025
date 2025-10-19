@@ -1,4 +1,4 @@
-# AI Tour Guide 🎧
+# AI TRAVEL MAI 🎧
 
 Thanks to Rick Steves' Europe audio tours that have accompanied us well for the past few years. But we wonder, if we can have improved the experience!
 
