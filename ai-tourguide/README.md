@@ -1,36 +1,45 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# AI Tour Guide 🎧
 
-## Getting Started
+Thanks to Rick Steves' Europe audio tours that have accompanied us well for the past few years. But we wonder, if we can have improved the experience!
 
-First, run the development server:
+**IMAGINE** No more long ass audio tours, no more TMI, other than your travel partners sharing unhinged stories, just concise, engaging stories tailored to your interests.
+
+An intelligent tour companion that brings Changi Jewel (for now) to life through personalized storytelling and voice interaction.
+
+**Vision**: A mobile app for seamless, hands-free experiences with continuous conversation flow - no more fumbling with audio players or reading screens while exploring.
+
+## What It Does
+
+- **Voice-Activated Tours**: Use wake word to summon your local Singaporean tour guide to bring your around Jewel Changi
+- **AI-Powered Narration**: Get personalized stories about the attractions
+- **Local Guide Personalities**: Meet Wei Jie (cheerful Singlish guide), Cheryl (professional historian), or the legendary Sang Nila Utama - each with authentic local accents and storytelling styles
+- **Personal Preference Learning**: Import your ChatGPT conversation summaries to automatically understand your interests, travel style, and preferences for tailored content
+- **Geofencing Discovery**: Push nearby points of interest
+- **Image Analysis**: Upload photos to get instant insights about what you're seeing
+
+## Tech Stack
+
+- **Frontend**: Next.js 15, React 19, Tailwind CSS
+- **AI**: OpenAI GPT-4o, OpenAI Agents SDK
+- **Voice**: Web Speech API, ElevenLabs integration
+- **Knowledge**: Tiny Changi Jewel dataset (0.0000b ;))
+
+## Quick Start
 
 ```bash
+# Install dependencies
+npm install
+
+# Set up environment variables
+cp .env.example .env.local
+# Add your OPENAI_API_KEY
+
+# Run development server
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000) to experience the AI tour guide.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Built for Hackathon
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
-
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+This project demonstrates the potential of AI-powered tourism experiences, combining conversational AI, computer vision, and personalized storytelling to create immersive travel companions.
